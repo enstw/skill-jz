@@ -8,6 +8,7 @@ A personal collection of AI-agent skills. Each top-level directory is one skill;
 - **[init-agents](./init-agents/)** — Initialize a directory with AI-agnostic agent context: `AGENTS.md` as the canonical file, plus short pointers from agent-specific instruction files such as `CLAUDE.md` and `GEMINI.md`. Description-triggered (no slash command), so it doesn't collide with Claude Code's built-in `/init`.
 - **[recommend](./recommend/)** — Pause the current trajectory, surface direction-level recommendations, and offer to refactor. Slash-invocable as `/recommend`; also self-triggers when the agent senses drift (scope creep, naming churn, half-finished implementations).
 - **[self-evaluate](./self-evaluate/)** — Estimate how many PDCA (plan-do-check-act) loops remain before the work is finished. Cost-driven and phase-agnostic: invokable pre-implementation, mid-implementation, or post-test-failure. The agent investigates (reads code, smoke-tests, checks env, web-searches) before estimating so the number is grounded in evidence. Slash-invocable as `/self-evaluate`.
+- **[fetch-blocked-pdf](./fetch-blocked-pdf/)** — Download PDFs or web pages blocked by CDNs such as Cloudflare or Akamai (403 Forbidden to `curl`/`web_fetch`). Bundles a `curl-cffi` browser-TLS-impersonation script with an optional Playwright HTML-to-Markdown fallback. Description-triggered (no slash command).
 
 ## AI-agnostic output
 
