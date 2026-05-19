@@ -2,108 +2,206 @@
 # requires-python = ">=3.10"
 # dependencies = [
 #     "curl-cffi",
-#     "playwright",
-#     "markdownify"
+#     "camoufox[geoip]",
+#     "markdownify",
 # ]
 # ///
 
+"""Fetch URLs blocked by CDNs (Cloudflare / Akamai).
+
+Escalates across three *independent* strategies rather than a ladder of
+brittle patches — a defense that adapts to one does not break the others:
+
+  1. curl-cffi  — cheap "fight": real browser TLS/HTTP-2 fingerprint, no JS.
+                  Clears the passive-fingerprint majority of blocks.
+  2. Wayback    — "sidestep": fetch an Internet Archive snapshot. One cheap
+                  API call; beats even CAPTCHA / IP-reputation because the
+                  origin is never touched. Fails only if not archived.
+  3. camoufox   — strong "fight": anti-detect Firefox that passes
+                  non-interactive JS challenges, then pulls the file with
+                  the earned clearance cookies.
+
+Residual ceiling (no local tier beats this): interactive CAPTCHA
+(Turnstile/hCaptcha needing a human action) and IP-reputation blocks. The
+only guaranteed bypass there is a paid Web Unlocker service.
+"""
+
 import argparse
-import sys
 import subprocess
+import sys
+
 from curl_cffi import requests
-from playwright.sync_api import sync_playwright
 from markdownify import markdownify as md
 
+
 def looks_like_pdf(content):
-    # PDFs start with %PDF, occasionally after a few stray leading bytes. Be lenient.
+    # PDFs start with %PDF, occasionally after a few stray leading bytes.
     return b"%PDF" in content[:1024]
 
+
+def is_pdf_target(output_path):
+    return output_path.endswith(".pdf")
+
+
+def save_ok(content, output_path):
+    """Write bytes, enforcing the PDF magic-byte check for .pdf targets so a
+    CDN HTML challenge page is never silently saved as a PDF."""
+    if is_pdf_target(output_path) and not looks_like_pdf(content):
+        return False
+    with open(output_path, "wb") as f:
+        f.write(content)
+    return True
+
+
+# --- Tier 1: curl-cffi -------------------------------------------------------
+
 def fetch_with_curl_cffi(url, output_path):
-    print(f"Attempting to download with curl-cffi (impersonating latest Chrome) to {output_path}...")
+    print(f"[1/3] curl-cffi (latest Chrome fingerprint) -> {output_path}")
     try:
-        # "chrome" auto-resolves to curl-cffi's latest supported fingerprint,
-        # so this stays current as the dependency is upgraded — pinning an old
-        # version is exactly what gets fingerprint-blocked.
+        # "chrome" auto-resolves to curl-cffi's newest fingerprint, so this
+        # stays current as the dependency is upgraded.
         response = requests.get(url, impersonate="chrome", timeout=30)
         if response.status_code != 200:
-            print(f"curl-cffi failed with status code {response.status_code}.")
+            print(f"      HTTP {response.status_code}.")
             return False
-
         content = response.content
-        content_type = response.headers.get("content-type", "").lower()
-
-        # Cloudflare/Akamai challenge pages often return HTTP 200 with an HTML
-        # body. Writing that to a .pdf is a silent failure, so when the output
-        # is meant to be a PDF, require the body to actually be one.
-        if output_path.endswith(".pdf") and not looks_like_pdf(content):
-            print(
-                f"Got HTTP 200 but the body is not a PDF "
-                f"(content-type: {content_type or 'unknown'}, {len(content)} bytes) "
-                f"— likely a CDN challenge/HTML page. Not saving."
-            )
+        if is_pdf_target(output_path) and not looks_like_pdf(content):
+            ct = response.headers.get("content-type", "unknown")
+            print(f"      HTTP 200 but not a PDF (content-type: {ct}, "
+                  f"{len(content)} bytes) — likely a CDN challenge page.")
             return False
-
-        with open(output_path, "wb") as f:
-            f.write(content)
-        print(f"Success! Size: {len(content)} bytes.")
+        save_ok(content, output_path)
+        print(f"      Success! {len(content)} bytes.")
         return True
     except Exception as e:
-        print(f"Error with curl-cffi: {e}")
+        print(f"      Error: {e}")
         return False
 
-def fetch_with_playwright(url, output_path):
-    print("Attempting to extract HTML content using Playwright...")
+
+# --- Tier 2: Wayback Machine -------------------------------------------------
+
+def fetch_from_wayback(url, output_path):
+    print("[2/3] Wayback Machine snapshot lookup")
     try:
-        # Ensure the Chromium browser is installed (one-time ~150MB download).
-        print("Ensuring Chromium is installed (one-time ~150MB download on first run)...")
-        try:
-            subprocess.run(
-                ["uv", "run", "playwright", "install", "chromium"],
-                check=True, capture_output=True, text=True,
-            )
-        except subprocess.CalledProcessError as e:
-            print(f"playwright install failed:\n{e.stderr or e.stdout}")
+        avail = requests.get(
+            "https://archive.org/wayback/available",
+            params={"url": url}, timeout=20,
+        ).json()
+        snap = avail.get("archived_snapshots", {}).get("closest")
+        if not snap or not snap.get("available") or snap.get("status") != "200":
+            print("      No usable snapshot.")
             return False
+        # Insert the `id_` identity modifier so we get the raw original bytes,
+        # not the Wayback-wrapped HTML viewer.
+        ts = snap["timestamp"]
+        snap_url = snap["url"].replace(f"/web/{ts}/", f"/web/{ts}id_/", 1)
+        print(f"      Snapshot {ts} — downloading raw copy.")
+        r = requests.get(snap_url, timeout=30)
+        if r.status_code != 200:
+            print(f"      Snapshot fetch HTTP {r.status_code}.")
+            return False
+        if not save_ok(r.content, output_path):
+            print("      Snapshot is not a PDF.")
+            return False
+        print(f"      Success! {len(r.content)} bytes from archive.")
+        return True
+    except Exception as e:
+        print(f"      Error: {e}")
+        return False
 
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+
+# --- Tier 3: camoufox --------------------------------------------------------
+
+def fetch_with_camoufox(url, output_path, html_fallback):
+    print("[3/3] camoufox (anti-detect browser, passes JS challenges)")
+    try:
+        from camoufox.sync_api import Camoufox
+    except ImportError as e:
+        print(f"      camoufox not available: {e}")
+        return False
+
+    # One-time patched-Firefox download (~150MB on first run).
+    print("      Ensuring camoufox browser is installed "
+          "(one-time ~150MB download on first run)...")
+    # Use the *current* interpreter (the uv-resolved venv that already has
+    # camoufox) — no dependency on `uv` or a `camoufox` script being on PATH,
+    # and `camoufox fetch` itself resolves the right binary per OS/arch.
+    try:
+        subprocess.run([sys.executable, "-m", "camoufox", "fetch"],
+                        check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        print(f"      camoufox fetch failed:\n{e.stderr or e.stdout}")
+        return False
+
+    try:
+        with Camoufox(headless=True) as browser:
             page = browser.new_page()
-            # networkidle is flaky on pages with analytics/long-polling; use a
-            # bounded domcontentloaded wait so a hanging page can't block forever.
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-            # Extract main content or body
-            html_content = page.evaluate("document.querySelector('main') ? document.querySelector('main').outerHTML : document.body.outerHTML")
-            markdown_text = md(html_content)
-            
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(markdown_text)
-                
-            print(f"Success! HTML extracted and converted to Markdown at {output_path}.")
-            browser.close()
+            # Give a non-interactive JS challenge time to resolve and set its
+            # clearance cookie, then pull the file with the earned context.
+            for attempt in range(4):
+                page.wait_for_timeout(4000)
+                if not is_pdf_target(output_path):
+                    break  # HTML target — go straight to extraction
+                resp = page.context.request.get(url)
+                if resp.ok:
+                    body = resp.body()
+                    if looks_like_pdf(body):
+                        save_ok(body, output_path)
+                        print(f"      Success! {len(body)} bytes via "
+                              f"camoufox-earned cookies.")
+                        return True
+                print(f"      Challenge not cleared yet "
+                      f"(attempt {attempt + 1}/4)...")
+
+            if is_pdf_target(output_path) and not html_fallback:
+                print("      Could not retrieve the PDF (interactive CAPTCHA "
+                      "or IP-reputation block likely).")
+                return False
+
+            # HTML extraction path: an HTML target, or --html-fallback on a
+            # PDF target that could not be downloaded.
+            out = output_path[:-4] + ".md" if output_path.endswith(".pdf") else output_path
+            html = page.evaluate(
+                "document.querySelector('main') "
+                "? document.querySelector('main').outerHTML "
+                ": document.body.outerHTML"
+            )
+            with open(out, "w", encoding="utf-8") as f:
+                f.write(md(html))
+            print(f"      Success! Page extracted to {out} (Markdown).")
             return True
     except Exception as e:
-        print(f"Error with Playwright: {e}")
+        print(f"      Error: {e}")
         return False
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Fetch URLs blocked by CDNs (Cloudflare/Akamai)")
+    parser = argparse.ArgumentParser(
+        description="Fetch URLs blocked by CDNs (Cloudflare/Akamai): "
+                    "curl-cffi -> Wayback -> camoufox.")
     parser.add_argument("url", help="URL to fetch")
     parser.add_argument("output", help="Output file path")
-    parser.add_argument("--html-fallback", action="store_true", help="If PDF download fails, attempt to extract the page as Markdown using Playwright")
+    parser.add_argument(
+        "--html-fallback", action="store_true",
+        help="If the PDF can't be retrieved, accept a Markdown rendering of "
+             "the page from the camoufox tier (writes .md) instead of failing.")
     args = parser.parse_args()
 
-    success = fetch_with_curl_cffi(args.url, args.output)
-    
-    if not success and args.html_fallback:
-        print("Falling back to Playwright HTML extraction...")
-        # Change extension to .md if it was .pdf
-        out_path = args.output
-        if out_path.endswith('.pdf'):
-            out_path = out_path[:-4] + '.md'
-        fetch_with_playwright(args.url, out_path)
-    elif not success:
-        sys.exit(1)
+    if fetch_with_curl_cffi(args.url, args.output):
+        return
+    if fetch_from_wayback(args.url, args.output):
+        return
+    if fetch_with_camoufox(args.url, args.output, args.html_fallback):
+        return
+
+    print("\nAll tiers failed. The remaining gates (interactive CAPTCHA or "
+          "IP-reputation) are not defeatable locally — use a paid Web "
+          "Unlocker (ZenRows/ScrapFly/Bright Data) or try a manual Internet "
+          "Archive search.", file=sys.stderr)
+    sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

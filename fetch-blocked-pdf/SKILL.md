@@ -5,30 +5,44 @@ description: Download PDFs or web pages that are blocked by CDNs like Cloudflare
 
 # Fetch Blocked PDF
 
-This skill provides a robust method to download PDFs or web pages when standard tools (`curl`, `wget`, `web_fetch`) are blocked by CDNs (Content Delivery Networks) such as Cloudflare or Akamai (often returning 403 Forbidden errors).
+Download a PDF or web page when standard tools (`curl`, `wget`, `web_fetch`) are blocked by a CDN such as Cloudflare or Akamai — typically a 403, or an HTTP 200 "Just a moment…" challenge page.
+
+## How it works
+
+The bundled script `scripts/fetch.py` escalates through three *independent* strategies — not a ladder of brittle patches. Each attacks the block a different way, so a defense that adapts to one does not break the others:
+
+1. **curl-cffi** — impersonates a real browser's TLS/HTTP-2 fingerprint. Cheap, no browser, clears the passive-fingerprint majority of blocks (most "curl gets 403" cases). No JavaScript.
+1. **Wayback Machine** — one Internet Archive API call for an archived snapshot. The origin is never touched, so this beats even interactive CAPTCHA and IP-reputation blocks — but only if the document was archived.
+1. **camoufox** — an anti-detect Firefox that passes non-interactive JS challenges (the "Just a moment…" interstitial), then downloads the file with the earned clearance cookies.
+
+The script stops at the first tier that produces a valid file. PDFs are verified by magic bytes, so a challenge page is never silently saved as a `.pdf`.
 
 ## How to use
-
-The skill bundles a Python script `scripts/fetch.py` that uses `curl-cffi` to impersonate a real browser's TLS fingerprint, bypassing most CDN blocks. If that fails, it can optionally use Playwright to render the page and extract its HTML as Markdown.
-
-### Basic PDF Download
-
-To download a blocked PDF, run the bundled script using `uv run`:
 
 ```bash
 uv run <path-to-skill>/scripts/fetch.py <URL> <output-path.pdf>
 ```
 
-### HTML Markdown Fallback
-
-If the target is an HTML page disguised as a PDF or if the PDF download still fails, you can use the `--html-fallback` flag. This will use Playwright to render the page and save the main content as a Markdown file (changing the `.pdf` extension to `.md` automatically).
-
-> **Note:** The first run of `--html-fallback` triggers a one-time Chromium download (~150MB) via `playwright install`.
+Add `--html-fallback` to accept a Markdown rendering of the page (written as `.md`) when the PDF itself cannot be retrieved:
 
 ```bash
 uv run <path-to-skill>/scripts/fetch.py <URL> <output-path.pdf> --html-fallback
 ```
 
-### Advanced: Wayback Machine
+## Agent- and OS-agnostic install
 
-If both methods fail, consider searching the Internet Archive's Wayback Machine for a snapshot of the PDF or page, and download the archive URL instead.
+There is nothing to install ahead of time, and the install path is identical for any agent (Claude, Gemini, Codex) on any supported OS (macOS, Ubuntu):
+
+- **Python deps** are declared inline (PEP 723 `# /// script` block). `uv run` reads them and builds an isolated ephemeral environment on first run — same command, same result on macOS and Linux. The only agent-facing interface is the `uv run …` shell command above; there is no agent-specific code or SDK.
+- **The camoufox browser** (a patched Firefox, ~150 MB) is not a pip package. The script fetches it on the first run that reaches tier 3 via `python -m camoufox fetch`, invoked with the *same interpreter* `uv` already resolved — so it needs neither `uv` nor a `camoufox` script on `PATH`. `camoufox fetch` downloads the correct build for the host OS/arch and caches it per-user (`~/Library/Caches/camoufox` on macOS, `~/.cache/camoufox` on Linux), so the download is one-time per machine.
+
+> **Ubuntu note:** On a minimal Ubuntu host (containers/CI), the patched Firefox needs the standard browser shared libraries (GTK/X11/etc.), exactly like Playwright or any headless Firefox. On a desktop install these are already present; on a bare server install them once with `npx playwright install-deps firefox` or the equivalent distro packages. macOS needs nothing extra.
+
+## What this does NOT defeat
+
+No local method beats these — the script fails cleanly and says so:
+
+- **Interactive CAPTCHA** (Turnstile / hCaptcha that needs a human action).
+- **IP-reputation blocks** (your IP is flagged regardless of fingerprint).
+
+The only guaranteed bypass for those is a paid Web Unlocker service (ZenRows, ScrapFly, Bright Data Web Unlocker), or a manual Internet Archive search if the automated snapshot lookup missed.
