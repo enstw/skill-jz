@@ -23,6 +23,8 @@ uv run <path-to-skill>/scripts/fetch.py <URL> <output-path.pdf>
 
 If the target is an HTML page disguised as a PDF or if the PDF download still fails, you can use the `--html-fallback` flag. This will use Playwright to render the page and save the main content as a Markdown file (changing the `.pdf` extension to `.md` automatically).
 
+> **Note:** The first run of `--html-fallback` triggers a one-time Chromium download (~150MB) via `playwright install`.
+
 ```bash
 uv run <path-to-skill>/scripts/fetch.py <URL> <output-path.pdf> --html-fallback
 ```

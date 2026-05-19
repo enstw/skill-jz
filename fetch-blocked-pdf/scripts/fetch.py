@@ -54,14 +54,24 @@ def fetch_with_curl_cffi(url, output_path):
 def fetch_with_playwright(url, output_path):
     print("Attempting to extract HTML content using Playwright...")
     try:
-        # Ensure browsers are installed
-        subprocess.run(["uv", "run", "playwright", "install", "chromium"], check=True, capture_output=True)
-        
+        # Ensure the Chromium browser is installed (one-time ~150MB download).
+        print("Ensuring Chromium is installed (one-time ~150MB download on first run)...")
+        try:
+            subprocess.run(
+                ["uv", "run", "playwright", "install", "chromium"],
+                check=True, capture_output=True, text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"playwright install failed:\n{e.stderr or e.stdout}")
+            return False
+
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto(url, wait_until="networkidle")
-            
+            # networkidle is flaky on pages with analytics/long-polling; use a
+            # bounded domcontentloaded wait so a hanging page can't block forever.
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
             # Extract main content or body
             html_content = page.evaluate("document.querySelector('main') ? document.querySelector('main').outerHTML : document.body.outerHTML")
             markdown_text = md(html_content)
