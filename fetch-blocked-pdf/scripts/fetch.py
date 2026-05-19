@@ -14,18 +14,39 @@ from curl_cffi import requests
 from playwright.sync_api import sync_playwright
 from markdownify import markdownify as md
 
+def looks_like_pdf(content):
+    # PDFs start with %PDF, occasionally after a few stray leading bytes. Be lenient.
+    return b"%PDF" in content[:1024]
+
 def fetch_with_curl_cffi(url, output_path):
-    print(f"Attempting to download with curl-cffi (impersonating Chrome) to {output_path}...")
+    print(f"Attempting to download with curl-cffi (impersonating latest Chrome) to {output_path}...")
     try:
-        response = requests.get(url, impersonate="chrome110", timeout=30)
-        if response.status_code == 200:
-            with open(output_path, "wb") as f:
-                f.write(response.content)
-            print(f"Success! Size: {len(response.content)} bytes.")
-            return True
-        else:
+        # "chrome" auto-resolves to curl-cffi's latest supported fingerprint,
+        # so this stays current as the dependency is upgraded — pinning an old
+        # version is exactly what gets fingerprint-blocked.
+        response = requests.get(url, impersonate="chrome", timeout=30)
+        if response.status_code != 200:
             print(f"curl-cffi failed with status code {response.status_code}.")
             return False
+
+        content = response.content
+        content_type = response.headers.get("content-type", "").lower()
+
+        # Cloudflare/Akamai challenge pages often return HTTP 200 with an HTML
+        # body. Writing that to a .pdf is a silent failure, so when the output
+        # is meant to be a PDF, require the body to actually be one.
+        if output_path.endswith(".pdf") and not looks_like_pdf(content):
+            print(
+                f"Got HTTP 200 but the body is not a PDF "
+                f"(content-type: {content_type or 'unknown'}, {len(content)} bytes) "
+                f"— likely a CDN challenge/HTML page. Not saving."
+            )
+            return False
+
+        with open(output_path, "wb") as f:
+            f.write(content)
+        print(f"Success! Size: {len(content)} bytes.")
+        return True
     except Exception as e:
         print(f"Error with curl-cffi: {e}")
         return False
