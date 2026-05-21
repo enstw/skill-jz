@@ -1,314 +1,194 @@
 ---
 name: transcribe-pdf
-description: Transcribe a PDF to Markdown for downstream AI reading (citation-locator verification, research notes, building a reference corpus). Use when the user asks to transcribe, convert, or extract a PDF, drops a PDF into a workspace directory and asks for .md, or starts a research session that will re-read the same PDFs multiple times. Encodes WHY: re-reading a PDF during writing costs roughly 1.5k-3k text tokens PLUS image tokens per page per lookup, while transcribed Markdown bypasses the vision pipeline entirely. Prefer the offline tool (pdf2md.py) for clean text-layer PDFs; escalate to vision-based parallel-subagent fan-out only when the text layer is unrecoverable.
-allowed-tools:
-  - Read
-  - Write
-  - Bash
-  - Task
+description: >
+  Transcribe PDFs to Markdown for downstream AI reading, citation-locator
+  verification, research notes, and reusable reference corpora. Use when a user
+  asks to transcribe, convert, extract, or prepare a PDF for repeated AI lookup.
+  The skill is self-contained: it bundles an offline pdf2md.py converter and a
+  page-combine helper. Prefer the bundled offline converter for PDFs with a text
+  layer; use vision-based transcription only when the text layer is missing or
+  fails quality checks.
 ---
 
-# transcribe-pdf — PDF → Markdown for downstream AI reading
+# transcribe-pdf
 
-## The cost case
+## Why Transcribe
 
-Re-reading a PDF during a writing session is expensive: every
-vision-based PDF read costs **~1,500–3,000 text tokens *plus* image
-tokens per page** for vision processing. A thesis or research
-project that revisits a single source ten times pays that cost ten
-times.
+Repeated vision reads of a PDF are expensive: each lookup re-renders pages and
+spends image-processing tokens again. A one-time Markdown transcription lets
+later citation checks and claim lookups use plain text.
 
-A one-time Markdown transcription pays once and lets every subsequent
-lookup hit a plain-text file — no vision tokens, no image
-preprocessing. For projects with more than a couple of source
-revisits, transcription is the cheaper option by a wide margin.
+This skill's job is to produce `workspace/<pdf-stem>.md` once, with stable page
+markers, and to spend vision effort only when the bundled offline path cannot
+produce usable text.
 
-This skill's job is to make transcription the default, and to spend
-vision tokens only when the source genuinely needs them.
+## Bundled Files
 
-## Decision tree
+Resolve these paths relative to this `SKILL.md`, not relative to the user's
+project:
 
-Two paths, taken in order:
+- `scripts/pdf2md.py` - self-contained PEP 723 converter run by `uv`.
+- `scripts/combine-workspace-pages.sh` - combines per-page fallback files.
+- `LICENSE.pdf2md` - MIT license for the bundled converter.
 
-- **Path A — offline tool (`pdf2md.py`).** Default for any PDF with a
-  text layer (born-digital papers, most journal PDFs, OCR'd scans
-  that already include text). Cheap, fast, no vision tokens. Output
-  is quality-checked with a small vision sample *after* transcription
-  so we still catch silent failures.
-- **Path B — vision fan-out.** Only when Path A fails its quality
-  check, or when `pdf2md.py` isn't installed and the work is a
-  one-off where installing is overkill. Burns image tokens, but
-  parallel subagent fan-out keeps wall-clock low and parent-context
-  consumption at zero.
+Do not assume any copy of `pdf2md.py` exists in the user's home directory or on
+`PATH`.
 
-The PDF always ends up at `workspace/<pdf-stem>.md` regardless of
-which path produced it.
+## Output Contract
 
-## Path A — offline tool
+Whichever path produces the transcript:
 
-1. **Locate `pdf2md.py`** (see "Locating / installing pdf2md.py"
-   below). If it can't be found and isn't worth installing for this
-   task, jump to Path B.
+- Write one file at `workspace/<pdf-stem>.md`.
+- Preserve original language; do not translate.
+- Preserve headings, paragraphs, lists, block quotes, tables, visible emphasis,
+  romanized names, and footnote numbers where readable.
+- Include page-boundary markers using printed page labels where possible.
+  The bundled converter emits markers like:
+  - `**[Page 1 start]**`
+  - `**[Page 1 end, Page 2 start]**`
+  - `**[Page 2 end]**`
+- If a vision fallback page has no printed number, infer from the previous page
+  and annotate it: `**[Page 276 start]** <!-- inferred, no printed number -->`.
+- Mark unreadable spans as `*[WARNING: illegible span on page N.]*`; never
+  guess.
 
-2. **Run it.** Default invocation:
+If `workspace/<pdf-stem>.md` already exists and is non-empty, skip it unless the
+user explicitly asks to regenerate it.
 
-   ```sh
-   pdf2md.py workspace/<pdf>.pdf workspace/<name>.md
-   ```
+## Prerequisites
 
-   Pass `--langs zh-Hant,en-US` (or similar BCP-47 codes) for
-   non-default languages. Pass `--offset N` only if the auto-detected
-   printed-page offset is wrong; otherwise let the tool detect it.
-   `--force-ocr` bypasses the text-layer tiers entirely (rarely
-   needed — the tool falls back to OCR automatically on pages whose
-   text layer is gibberish).
-
-   Don't `pip install` the dependencies and don't invoke with
-   `python pdf2md.py`. The script is a PEP 723 single-file program;
-   its shebang runs it under `uv run --script` and resolves deps in
-   a throwaway environment on first run.
-
-3. **Quality check (3-page vision sample).** Spawn **one** subagent
-   with full tool access (in Claude Code, the `general-purpose`
-   subagent type; use the equivalent in your runtime) with this
-   brief:
-
-   - Pick three physical pages: first content page (skip covers /
-     blank versos), middle page, last content page.
-   - Open those three pages in the source PDF using the subagent's
-     native PDF / vision tool. Read the corresponding page spans in
-     `workspace/<name>.md`.
-   - Return one of:
-     - `PASS` — a downstream AI can recover the printed text from
-       the `.md` (minor whitespace / ligature noise OK, tables as
-       fences OK, punctuation variance OK).
-     - `FAIL: <reason>` — broken structure (missing pages, page
-       markers misaligned), systematic OCR garble, or key content
-       (footnotes, tables, quote marks) unreadable.
-   - **Return only the verdict and reason to the parent.**
-     Transcribed content must not enter parent context.
-
-   The subagent **must not** write its own script (PyPDF2,
-   pdfplumber, etc.) to extract text for the check. Use native
-   vision; that is the whole point of the check.
-
-4. **On PASS:** stop. The `.md` is ready for use.
-
-5. **On FAIL:** delete `workspace/<name>.md` and run Path B.
-
-## Path B — vision fan-out
-
-Used when Path A fails the quality check, or as the direct path when
-`pdf2md.py` isn't available. Produces the same
-`workspace/<name>.md` shape so downstream consumers don't care which
-path ran.
-
-"Subagent" in this section means whatever your runtime calls a
-full-tool-access subagent (Claude Code: the `general-purpose` type).
-
-1. **Fan out in parallel, 3 pages per subagent.**
-   - Spawn `⌈pages / 3⌉` subagents **concurrently in a single
-     tool-call batch**. Each subagent owns one contiguous 3-page
-     range (the last range may be 1–3 pages).
-   - Per-page save points + 3-page batched reads is the sweet spot:
-     a 31-page Chinese journal article finished in ~1.6 min on this
-     setup, vs. ~10.6 min for per-20-page single-subagent and
-     ~16.5 min for per-page single-subagent. Don't switch shapes
-     without re-benchmarking.
-
-2. **Each subagent does:**
-   - Read all 3 pages of its range using its native vision-capable
-     PDF tool (one call, batched).
-   - Transcribe to Markdown preserving:
-     - Headings and subheadings.
-     - Paragraphs (one blank line between).
-     - Footnotes inline as `¹ ...` / `² ...`, keeping the
-       superscript reference in the body text.
-     - Block quotes (`> ...`).
-     - Lists (ordered or unordered, matching the original).
-     - Tables (GFM pipe-table syntax).
-     - Inline emphasis (`*italic*`, `**bold**`) where visible.
-     - Romanized proper names and English inline terms exactly as
-       printed.
-   - Write **three separate files**, one per page, to
-     `workspace/<name>/pNNNN.md` with **4-digit zero-padded** page
-     numbers (e.g. `p0001.md`, `p0275.md`). Lexical sort = numeric
-     order, which matters for the concatenation step.
-   - Per-page writes preserve save-points — a subagent that dies
-     mid-range still leaves completed pages on disk.
-   - Return only a minimal status line to the parent, e.g.
-     `done: physical 4-6, 3 files, 0 illegible, p0278-p0280`.
-     Transcribed content must not enter parent context.
-
-3. **Page markers.** At the start of each page, emit:
-
-   ```
-   **[Page N start]**
-   ```
-
-   `N` is the **printed** page number from the page's header or
-   footer — *not* the physical PDF index. Journal reprints often
-   start at something like 275, not 1. If a page has no printed
-   number (title page, blank verso, figure-only page, cover),
-   continue the previous page's numbering with `+1` and annotate the
-   inference:
-
-   ```
-   **[Page 276 start]** <!-- inferred, no printed number -->
-   ```
-
-   Roman-numeral front matter (i, ii, iii, …) stays as printed.
-
-4. **Concatenate.** After all subagents finish:
-
-   ```sh
-   # If you have the helper from the pdf2md repo:
-   ./scripts/combine-workspace-pages.sh "<name>"
-   ```
-
-   Otherwise inline-equivalent (zero-padding makes lexical = numeric):
-
-   ```sh
-   ( first=1
-     for f in workspace/<name>/p*.md; do
-       [ $first -eq 0 ] && echo
-       cat "$f"
-       first=0
-     done
-   ) > workspace/<name>.md
-   rm -r workspace/<name>
-   ```
-
-## Common output contract
-
-Whichever path produced the file:
-
-- Single file at `workspace/<pdf-stem>.md`.
-- `**[Page N start]**` markers using printed page numbers, monotonic
-  except at known front-matter → body transitions.
-- First and last visible printed page numbers in the `.md` match
-  what the PDF shows.
-- Footnote numbers preserved with their text captured nearby.
-
-After either path, spot-check those three properties before declaring
-done.
-
-## Edge cases
-
-- **Paywalled or inaccessible source.** Record metadata (title,
-  author, year, abstract) in the `.md` and stop. Do **not** fabricate
-  content.
-- **Scanned PDF with illegible spans.** Transcribe what's legible.
-  Mark unreadable spans with `*[WARNING: illegible span on page N.]*`
-  and continue. Do not guess.
-- **Mixed-language document.** Transcribe in the original language(s)
-  exactly as printed. Do not translate.
-- **Non-PDF source** (DOCX, HTML, EPUB). Fetch the fulltext through
-  the appropriate tool and save to `workspace/<name>.md` preserving
-  paragraph structure. Page markers don't apply unless the source
-  has them.
-
-## Idempotence and bulk transcription
-
-If `workspace/<name>.md` already exists and is non-empty, **skip**
-that PDF — re-transcribing wastes tokens and risks regressing a file
-the user has been editing.
-
-For bulk runs, one task per PDF. Title each task with the path taken
-so review is easy:
-- `Transcribe <name> (pdf2md)`
-- `Transcribe <name> (vision)`
-
-## Locating / installing pdf2md.py
-
-Run once per session, only when Path A is about to start.
-
-### Locate the script
-
-1. `command -v pdf2md.py` — if it returns a path, use it. Done.
-2. Otherwise, search known locations in order; first match wins:
-   - `$PDF2MD_HOME/pdf2md.py` (env-var override)
-   - `~/homework/pdf2md/pdf2md.py`
-   - `~/projects/pdf2md/pdf2md.py`
-   - `~/src/pdf2md/pdf2md.py`
-   - `~/code/pdf2md/pdf2md.py`
-   - `~/Developer/pdf2md/pdf2md.py`
-3. Last-resort filesystem probe:
-   ```sh
-   find ~ -maxdepth 5 -name pdf2md.py -type f \
-        -not -path '*/.*' 2>/dev/null | head -n 1
-   ```
-4. **If found off-PATH:** symlink it to a PATH directory so future
-   sessions skip steps 2–3. Prefer `~/.local/bin` (XDG default, on
-   PATH for most macOS + Linux setups). Fall back to `~/bin` if
-   that's already on PATH instead:
-   ```sh
-   mkdir -p ~/.local/bin
-   ln -sf "<found-path>" ~/.local/bin/pdf2md.py
-   ```
-   If neither directory is on PATH, print a one-line PATH-update
-   hint and proceed using the absolute path for this session.
-5. **If still not found:** tell the user the canonical source is the
-   `pdf2md` repo (MIT, single PEP 723 file — clone wherever your
-   development tree lives) and **fall through to Path B**. The skill
-   stays useful without the cheap path; only the token-economy
-   advantage is missed.
-
-### Check prerequisites (OS-detected hints)
-
-Before invoking `pdf2md.py`, verify its prerequisites. Detect OS once:
+Before using `scripts/pdf2md.py`, check the platform and dependencies:
 
 ```sh
-os="$(uname -s)"   # Darwin = macOS, Linux = Linux
+uname -s
+command -v uv
 ```
 
-**`uv` (required on both OSes).** The script's shebang runs it under
-`uv run --script`. If `command -v uv` is empty, **print** the
-appropriate install hint and stop — do not auto-run package
-managers, especially anything needing `sudo`:
+If `uv` is missing, stop and give the user the relevant install hint. Do not run
+package managers automatically.
 
-- macOS: `brew install uv`  (or `curl -LsSf https://astral.sh/uv/install.sh | sh` if Homebrew isn't installed)
-- Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`  (works on Ubuntu, Debian, Fedora, Arch, etc.)
+- macOS with Homebrew: `brew install uv`
+- Ubuntu/Debian: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
-**`tesseract` (Linux only, for OCR on scanned pages).** On macOS,
-`pdf2md.py` uses Apple Vision and needs no extra binary. On Linux,
-OCR runs through `ocrmypdf` + `tesseract`. If `os = Linux` and
-`command -v tesseract` is empty, print:
+OCR prerequisites:
 
-- Ubuntu/Debian: `sudo apt install tesseract-ocr tesseract-ocr-chi-tra tesseract-ocr-eng`
-- Fedora: `sudo dnf install tesseract tesseract-langpack-chi_tra tesseract-langpack-eng`
-- Arch/Manjaro: `sudo pacman -S tesseract tesseract-data-chi_tra tesseract-data-eng`
+- macOS: the converter uses Apple Vision. No tesseract setup is needed. For
+  Traditional Chinese OCR, macOS 13+ is recommended.
+- Ubuntu/Debian: clean text-layer PDFs need only `uv`; scanned/OCR fallback also
+  needs system OCR tools:
+  `sudo apt install tesseract-ocr tesseract-ocr-chi-tra tesseract-ocr-eng ghostscript qpdf`
 
-Substitute language packs to match the user's `--langs`. Note:
-`tesseract` is only needed when a PDF lacks a text layer; clean
-born-digital PDFs go through `pdf2md.py` without touching OCR.
+Substitute tesseract language packs when using non-default `--langs` values.
 
-### Portability notes
+## Path A - Bundled Offline Converter
 
-- Every command in this section is POSIX (`uname`, `command -v`,
-  `find`, `ln -s`, `mkdir -p`, `[ ... ]`) and behaves identically on
-  macOS and Linux.
-- `find -maxdepth` is supported on both BSD find (macOS) and GNU
-  find (Linux).
-- The runtime backend split (Apple Vision on macOS, `ocrmypdf` on
-  Linux) is handled *inside* `pdf2md.py` — this skill doesn't need
-  an OS branch beyond the install hints above.
-- Do not run package-manager commands automatically (`brew`, `apt`,
-  `dnf`, `pacman`). Print the hint, let the user decide.
+Use this first for born-digital PDFs, OCR'd PDFs with a text layer, and most
+journal articles.
 
-## Further reading
+Run from the user's project root:
 
-The pdf2md repo is the source of truth. When numbers, defaults, or
-protocol shape change there, update this skill from those files:
+```sh
+<skill-dir>/scripts/pdf2md.py workspace/<pdf>.pdf workspace/<pdf-stem>.md
+```
 
-- `README.md` — extraction tiers, CLI flags, smart-offset detection.
-- `workspace-transcription-protocol.md` — full per-PDF procedure,
-  quality-check rubric, vision fan-out details, edge cases.
-- `workspace-transcription-benchmark.md` — decision record behind
-  the 3p × parallel fan-out default.
+Useful flags:
 
-This skill intentionally **does not** document tier internals,
-gibberish-detection thresholds, or `pdf2md.py`'s `use_ocr=False`
-invariant. Those are concerns for someone editing the tool, covered
-in the pdf2md repo's `AGENTS.md`. This skill consumes the output,
-not the implementation.
+- `--langs zh-Hant,en-US` - comma-separated BCP-47 codes; default is
+  `zh-Hant,en-US`. This affects OCR language selection and text-gibberish
+  detection.
+- `--offset N` - explicit printed-page offset. Omit it by default; the converter
+  auto-detects header/footer offsets and logs the decision to stderr.
+- `--force-ocr` - ignore text layers and OCR every page. Use only when normal
+  extraction is systematically wrong.
+- `--debug` - stream per-page tier decisions to stderr; useful after a failed
+  quality check.
+- `--no-page-markers` - suppress page markers. Avoid this for citation work.
+
+Do not install Python dependencies manually and do not create a virtualenv. The
+script's shebang runs `uv run --script` and resolves inline PEP 723
+dependencies. If a platform has trouble with the shebang, use the equivalent:
+
+```sh
+uv run --script <skill-dir>/scripts/pdf2md.py workspace/<pdf>.pdf workspace/<pdf-stem>.md
+```
+
+## Quality Check
+
+After Path A, visually compare a small sample against the source PDF:
+
+1. Pick three physical pages: first content page, middle content page, last
+   content page. Skip covers and blank versos.
+2. Use the runtime's native PDF/vision capability to inspect those pages. Do not
+   write a second text-extraction script for the check.
+3. Read only the corresponding spans in `workspace/<pdf-stem>.md`.
+4. Decide:
+   - `PASS` - a downstream AI can recover the printed text and page labels
+     despite minor whitespace, ligature, punctuation, or table-format noise.
+   - `FAIL: <reason>` - missing pages, misaligned markers, systematic OCR
+     garble, or unreadable key content such as footnotes, tables, or quotes.
+
+If the runtime supports isolated workers, delegate the check so the transcribed
+content does not enter the main context. If it does not, keep the check brief
+and do not paste transcript content into the final response.
+
+On `PASS`, stop. On `FAIL`, remove the bad `workspace/<pdf-stem>.md` and use
+Path B.
+
+## Path B - Vision Fallback
+
+Use this only when Path A fails or when the PDF has no recoverable text layer.
+The fallback must still produce `workspace/<pdf-stem>.md`.
+
+Preferred shape when the runtime supports parallel workers:
+
+1. Split the PDF into contiguous 3-page ranges.
+2. Run ranges concurrently. Each worker reads its assigned pages with native
+   vision/PDF capability and writes one file per page:
+   `workspace/<pdf-stem>/pNNNN.md`.
+3. Use 4-digit zero-padding so lexical sort equals page order.
+4. Return only status lines from workers, not transcribed page content.
+
+If parallel workers are unavailable, process the same 3-page ranges
+sequentially and write the same `pNNNN.md` files.
+
+Each page file should start with a page marker:
+
+```md
+**[Page N start]**
+```
+
+Use the printed page number from the header/footer, not the physical PDF index.
+Roman-numeral front matter stays roman. If no printed number is visible, infer
+from the previous page and annotate the inference.
+
+Combine after all page files are written:
+
+```sh
+<skill-dir>/scripts/combine-workspace-pages.sh "<pdf-stem>"
+```
+
+The helper expects `workspace/<pdf-stem>/p*.md`, writes
+`workspace/<pdf-stem>.md`, and removes the per-page directory. If the helper is
+unavailable, concatenate sorted `p*.md` files with a blank line between pages
+and then remove the per-page directory.
+
+## Edge Cases
+
+- Paywalled or inaccessible source: write available metadata only (title,
+  author, year, abstract/source note) and state that full text was inaccessible.
+  Do not fabricate content.
+- Mixed-language documents: transcribe in the original language(s).
+- Non-PDF source: fetch or convert through the appropriate native tool and save
+  `workspace/<name>.md`; page markers apply only when the source has page
+  labels.
+- Bulk transcription: one task per source. Skip existing non-empty `.md` files.
+
+## Final Check
+
+Before declaring done:
+
+- First and last visible page labels in the Markdown match the PDF.
+- Page markers are monotonic except at known front-matter/body transitions.
+- Footnote numbers and nearby footnote text are preserved where readable.
+- The final answer reports the output path and whether Path A or Path B was
+  used.

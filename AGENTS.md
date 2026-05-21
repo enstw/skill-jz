@@ -10,7 +10,7 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 - `recommend/SKILL.md` — pause and surface direction-level recommendations or refactors. Slash `/recommend` plus self-triggers on drift signals.
 - `self-evaluate/SKILL.md` — estimate PDCA loops remaining before the work is finished. Cost-driven, phase-agnostic. Investigates (code/env/smoke/web) before estimating. Slash `/self-evaluate`.
 - `fetch-blocked-pdf/SKILL.md` — download CDN-blocked PDFs/pages (Cloudflare/Akamai 403). `curl-cffi` TLS impersonation, optional Playwright HTML-to-Markdown fallback. Description-triggered.
-- `transcribe-pdf/SKILL.md` — transcribe a PDF to Markdown for downstream AI reading. Encodes the token-economy case, runs `pdf2md.py` as the cheap default, falls back to a parallel-subagent vision fan-out when the text layer is unrecoverable. Description-triggered.
+- `transcribe-pdf/SKILL.md` — transcribe a PDF to Markdown for downstream AI reading. Self-contained: bundles `pdf2md.py` as the cheap default plus a page-combine helper, and falls back to vision transcription when the text layer is unrecoverable. Description-triggered.
 
 ## Conventions
 
