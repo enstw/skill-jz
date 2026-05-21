@@ -21,11 +21,11 @@ Canonical project context for AI agents lives in `AGENTS.md`. Agent-specific ins
 ## Flow
 
 1. **Locate root.** Run `git rev-parse --show-toplevel` if available, otherwise use the current working directory and confirm with the user.
-1. **Survey existing context files** in the root: `AGENTS.md`, common agent-specific instruction files such as `CLAUDE.md` and `GEMINI.md`, and any project-specific equivalents. Read enough to know which have substantive content.
+1. **Survey existing context files** in the root: `AGENTS.md`, common agent-specific instruction files such as `CLAUDE.md` and `GEMINI.md`, and any project-specific equivalents. Read enough to know which have substantive project content. Empty files, pointer-only files, template stubs, and placeholder headings are non-substantive.
 1. **Confirm the agent set with the user.** Common pointer files include `CLAUDE.md` and `GEMINI.md`. Ask which agent-specific instruction files to create or update before writing anything. Do not assume.
 1. **Decide canonical content for `AGENTS.md`.**
-   - If `AGENTS.md` already exists with content, treat it as canonical and leave its body alone.
-   - Otherwise, if exactly one agent-specific instruction file (`CLAUDE.md`, `GEMINI.md`, or similar) has substantive project content, move that file's content into a new `AGENTS.md` (that file then becomes a pointer in the next step).
+   - If `AGENTS.md` already exists with substantive project content, treat it as canonical and leave its body alone.
+   - Otherwise, if exactly one agent-specific instruction file (`CLAUDE.md`, `GEMINI.md`, or similar) has substantive project content, migrate its project-relevant instructions into `AGENTS.md` in agent-neutral wording, preserving intent. Do not copy runner-specific metadata, slash-command details, or tool-specific operational instructions unless they are genuinely project conventions; ask the user if that distinction is ambiguous. That file then becomes a pointer in the next step.
    - Otherwise, if multiple agent-specific instruction files have substantive content, stop and ask the user how to merge - do not silently pick one.
    - Otherwise (nothing exists), create a fresh `AGENTS.md` with section stubs: Project Overview, Setup, Architecture, Conventions, Commands.
 1. **Create pointer files** for each agent in the confirmed set. Each pointer is short and looks like:

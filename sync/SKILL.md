@@ -14,6 +14,15 @@ allowed-tools:
   - Bash(git push)
   - Bash(git push *)
   - Bash(git pull --ff-only*)
+  - Bash(git -C * rev-parse *)
+  - Bash(git -C * status *)
+  - Bash(git -C * branch *)
+  - Bash(git -C * remote *)
+  - Bash(git -C * fetch *)
+  - Bash(git -C * rev-list *)
+  - Bash(git -C * push)
+  - Bash(git -C * push *)
+  - Bash(git -C * pull --ff-only*)
   - Bash(git init)
   - Bash(gh repo create *)
 ---
@@ -34,7 +43,7 @@ Flow: detect repo (single or workspace-of-repos) -> for each repo, gather state 
 1. **If it succeeds:** the current directory is inside a git repo. Run steps 2–5 once for that repo.
 1. **If it fails:** the current directory is not itself a git repo. Check whether it's a workspace folder containing repo subfolders:
    - List immediate child directories and treat each one as a candidate repo if `<child>/.git` exists (a directory for normal repos, a file for submodules/worktrees). Skip hidden dirs and obvious non-project directories (`node_modules`, `venv`, `.venv`, `__pycache__`, `dist`, `build`, `target`).
-   - **If one or more child repos are found:** enter workspace mode. List the discovered repos to the user, then run steps 2–5 inside each one (use `cd <child> && git ...` or `git -C <child> ...`). Produce a per-repo report and a short aggregate summary at the end (X synced, Y already up to date, Z had warnings, W skipped).
+   - **If one or more child repos are found:** enter workspace mode. List the discovered repos to the user, then run steps 2–5 inside each one using `git -C <child> ...`. Produce a per-repo report and a short aggregate summary at the end (X synced, Y already up to date, Z had warnings, W skipped).
    - **If no child repos are found:** tell the user the current directory is not a git repo and not a workspace of repos. Ask whether to run `git init` here (and optionally `gh repo create` after, asking public vs private). Whatever they answer, exit — a freshly initialized repo has no commits or remote state to sync; the user can run `/sync` again later.
 
 Do not recurse past immediate children by default. Nested repos (submodules inside a project, vendored trees) should be synced from their own parent or explicitly, not as a side effect of `/sync` at the workspace root. If the user wants deeper recursion, they can ask.
@@ -44,6 +53,7 @@ Do not recurse past immediate children by default. Nested repos (submodules insi
 1. `git fetch --quiet` so remote-tracking refs are current. If the fetch fails (no remote, auth error), record the error and continue with the local-only picture; do not retry credentials.
 1. `git status --short` and split the output into untracked vs modified/staged paths.
 1. `git rev-parse --abbrev-ref HEAD` for the current branch.
+1. If the current branch is `HEAD`, stop for that repo and report "detached HEAD; checkout or create a branch before syncing." Do not push from detached HEAD.
 1. Check whether an upstream exists with `git rev-parse --abbrev-ref @{u}` (it can fail; that's fine).
 1. If an upstream exists, get the counts with `git rev-list --left-right --count HEAD...@{u}` — the left number is local-ahead, the right is local-behind.
 
@@ -59,6 +69,8 @@ Pick exactly one branch:
 - **Diverged (N ahead, M behind).** Report both counts and stop. `/sync` does not merge, rebase, or force-push. The user resolves this manually.
 
 If a push or pull fails (auth, hook rejection, non-fast-forward), report the exact error and stop. Do not retry, do not adjust credentials, do not switch transports.
+
+After any successful push or pull, refresh `git status --short`, upstream detection, and ahead/behind counts before producing the final report. The final report must describe the post-action state, not the pre-action state.
 
 ## 4. Dirty-Tree Warning
 
