@@ -49,7 +49,13 @@ Past that one prerequisite, there is nothing else to install ahead of time, and 
 - **Python deps** are declared inline (PEP 723 `# /// script` block). `uv run` reads them and builds an isolated ephemeral environment on first run — same command, same result on macOS and Linux. The only agent-facing interface is the `uv run …` shell command above; there is no agent-specific code or SDK.
 - **The camoufox browser** (a patched Firefox, ~150 MB) is not a pip package. The script fetches it on the first run that reaches tier 3 via `python -m camoufox fetch`, invoked with the *same interpreter* `uv` already resolved — so it needs neither `uv` nor a `camoufox` script on `PATH`. `camoufox fetch` downloads the correct build for the host OS/arch and caches it per-user (`~/Library/Caches/camoufox` on macOS, `~/.cache/camoufox` on Linux), so the download is one-time per machine.
 
-> **Ubuntu note:** On a minimal Ubuntu host (containers/CI), the patched Firefox needs the standard browser shared libraries (GTK/X11/etc.), exactly like Playwright or any headless Firefox. On a desktop install these are already present; on a bare server install them once with `npx playwright install-deps firefox` or the equivalent distro packages. macOS needs nothing extra.
+> **Linux Camoufox note:** Do not guess or maintain a broad Firefox dependency list here. If the camoufox tier fails to launch on Linux, check the official Camoufox installation guide first: <https://camoufox.com/python/installation/>. At the time this skill was written, the guide names this minimal Ubuntu command for fresh Linux installs:
+>
+> ```bash
+> sudo apt install -y libgtk-3-0 libx11-xcb1 libasound2
+> ```
+>
+> If using Camoufox's virtual-display mode, also check the official virtual display guide: <https://camoufox.com/python/virtual-display/>. Do not install `xvfb` unless using `headless="virtual"`.
 
 ## What this does NOT defeat
 
