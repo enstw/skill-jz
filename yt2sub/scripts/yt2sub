@@ -6,8 +6,8 @@ MODEL="${WHISPER_MODEL:-large-v3-turbo}"
 # --- Dependency checks ---
 missing=()
 command -v yt-dlp &>/dev/null  || missing+=("yt-dlp (uv tool install yt-dlp)")
-command -v ffmpeg &>/dev/null   || missing+=("ffmpeg (brew install ffmpeg)")
-command -v uv &>/dev/null       || missing+=("uv (brew install uv)")
+command -v ffmpeg &>/dev/null   || missing+=("ffmpeg (macOS: brew install ffmpeg / Ubuntu: sudo apt install ffmpeg)")
+command -v uv &>/dev/null       || missing+=("uv (curl -LsSf https://astral.sh/uv/install.sh | sh)")
 
 if [ ${#missing[@]} -gt 0 ]; then
     echo "ERROR: Missing dependencies:" >&2
