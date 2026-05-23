@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MODEL="${WHISPER_MODEL:-large-v3-turbo}"
+
+# --- Dependency checks ---
+missing=()
+command -v yt-dlp &>/dev/null  || missing+=("yt-dlp (uv tool install yt-dlp)")
+command -v ffmpeg &>/dev/null   || missing+=("ffmpeg (brew install ffmpeg)")
+command -v uv &>/dev/null       || missing+=("uv (brew install uv)")
+
+if [ ${#missing[@]} -gt 0 ]; then
+    echo "ERROR: Missing dependencies:" >&2
+    for dep in "${missing[@]}"; do echo "  - $dep" >&2; done
+    exit 1
+fi
+
+VENV_DIR="$HOME/tools/yt2sub/venv"
+PYTHON_BIN="$VENV_DIR/bin/python"
+
+if [ ! -f "$PYTHON_BIN" ]; then
+    echo "ERROR: Python venv with faster-whisper is missing." >&2
+    echo "Please create it by running:" >&2
+    echo "  uv venv \"$VENV_DIR\"" >&2
+    echo "  uv pip install --python \"$PYTHON_BIN\" faster-whisper" >&2
+    exit 1
+fi
+
+# --- Usage ---
+if [ $# -lt 1 ]; then
+    echo "Usage: $0 <youtube-url|audio-file> [output-dir]"
+    exit 1
+fi
+
+SOURCE="$1"
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT
+
+# --- Resolve WAV ---
+if [ -f "$SOURCE" ]; then
+    BASENAME="$(basename "$SOURCE" | sed 's/\.[^.]*$//')"
+    WAV="$TMPDIR/${BASENAME}.wav"
+    echo "Converting to 16 kHz mono WAV..."
+    ffmpeg -hide_banner -loglevel warning -i "$SOURCE" -ar 16000 -ac 1 "$WAV"
+else
+    echo "Downloading audio..."
+    yt-dlp -x --audio-format wav \
+        --js-runtimes node \
+        --remote-components ejs:github \
+        --postprocessor-args "ffmpeg:-ar 16000 -ac 1" \
+        -o "$TMPDIR/%(title)s.%(ext)s" \
+        "$SOURCE"
+    WAV="$(find "$TMPDIR" -name '*.wav' | head -1)"
+    if [ -z "$WAV" ]; then
+        echo "Error: no WAV file produced" >&2
+        exit 1
+    fi
+    BASENAME="$(basename "$WAV" .wav)"
+fi
+
+OUTDIR="$(cd "${2:-.}" && pwd)"
+OUTPUT="$OUTDIR/${BASENAME}.txt"
+
+# --- Transcribe ---
+echo "Transcribing..."
+SOURCE_WAV="$WAV" OUTPUT_FILE="$OUTPUT" MODEL_NAME="$MODEL" \
+"$PYTHON_BIN" -c "
+import os, sys
+from faster_whisper import WhisperModel
+model = WhisperModel(os.environ['MODEL_NAME'], device='cpu', compute_type='int8')
+segments, info = model.transcribe(os.environ['SOURCE_WAV'], vad_filter=True)
+print(f'Audio duration: {info.duration:.1f}s', file=sys.stderr)
+with open(os.environ['OUTPUT_FILE'], 'w') as f:
+    for s in segments:
+        pct = s.end / info.duration * 100
+        print(f'  [{s.start:.1f}s -> {s.end:.1f}s] ({pct:.0f}%) {s.text.strip()}', file=sys.stderr)
+        f.write(s.text.strip() + '\n')
+"
+
+echo "Done: $OUTPUT"
