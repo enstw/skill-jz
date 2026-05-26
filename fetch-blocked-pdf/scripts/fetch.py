@@ -27,11 +27,16 @@ only guaranteed bypass there is a paid Web Unlocker service.
 """
 
 import argparse
+import signal
 import subprocess
 import sys
+import time
 
 from curl_cffi import requests
 from markdownify import markdownify as md
+
+
+IA_HEADERS = {"User-Agent": "fetch-blocked-pdf/1.0 (+https://archive.org)"}
 
 
 def looks_like_pdf(content):
@@ -80,13 +85,38 @@ def fetch_with_curl_cffi(url, output_path):
 
 # --- Tier 2: Wayback Machine -------------------------------------------------
 
-def fetch_from_wayback(url, output_path):
+def _ia_get(url, params=None):
+    # archive.org throttles unauthenticated bursts to 429 with an HTML body.
+    # Retry once honoring Retry-After; return the Response on 200, else None.
+    for attempt in range(2):
+        r = requests.get(url, params=params, headers=IA_HEADERS, timeout=20)
+        if r.status_code == 200:
+            return r
+        if r.status_code == 429 and attempt == 0:
+            retry_after = 2
+            try:
+                retry_after = int(r.headers.get("Retry-After", "2"))
+            except ValueError:
+                pass
+            print(f"      Rate-limited by archive.org; backing off {retry_after}s.")
+            time.sleep(retry_after)
+            continue
+        return None
+    return None
+
+
+def fetch_from_wayback(url, output_path, html_fallback):
     print("[2/3] Wayback Machine snapshot lookup")
     try:
-        avail = requests.get(
-            "https://archive.org/wayback/available",
-            params={"url": url}, timeout=20,
-        ).json()
+        avail_resp = _ia_get(
+            "https://archive.org/wayback/available", params={"url": url},
+        )
+        if avail_resp is None or not avail_resp.headers.get(
+            "content-type", "",
+        ).startswith("application/json"):
+            print("      No usable snapshot.")
+            return False
+        avail = avail_resp.json()
         snap = avail.get("archived_snapshots", {}).get("closest")
         if not snap or not snap.get("available") or snap.get("status") != "200":
             print("      No usable snapshot.")
@@ -96,13 +126,29 @@ def fetch_from_wayback(url, output_path):
         ts = snap["timestamp"]
         snap_url = snap["url"].replace(f"/web/{ts}/", f"/web/{ts}id_/", 1)
         print(f"      Snapshot {ts} — downloading raw copy.")
-        r = requests.get(snap_url, timeout=30)
+        r = requests.get(snap_url, timeout=30, headers=IA_HEADERS)
         if r.status_code != 200:
             print(f"      Snapshot fetch HTTP {r.status_code}.")
             return False
-        if not save_ok(r.content, output_path):
-            print("      Snapshot is not a PDF.")
-            return False
+        # PDF target with a PDF snapshot — save and done.
+        if is_pdf_target(output_path) and looks_like_pdf(r.content):
+            save_ok(r.content, output_path)
+            print(f"      Success! {len(r.content)} bytes from archive.")
+            return True
+        # PDF target with an HTML snapshot — write Markdown if requested.
+        if is_pdf_target(output_path):
+            if not html_fallback:
+                print("      Snapshot is not a PDF.")
+                return False
+            out = output_path[:-4] + ".md"
+            html = r.content.decode("utf-8", errors="replace")
+            with open(out, "w", encoding="utf-8") as f:
+                f.write(md(html))
+            print(f"      Success! Page extracted to {out} "
+                  f"(Markdown from archive).")
+            return True
+        # Non-PDF target — write bytes directly.
+        save_ok(r.content, output_path)
         print(f"      Success! {len(r.content)} bytes from archive.")
         return True
     except Exception as e:
@@ -133,9 +179,22 @@ def fetch_with_camoufox(url, output_path, html_fallback):
         print(f"      camoufox fetch failed:\n{e.stderr or e.stdout}")
         return False
 
+    # Wall-clock safety net so a wedged FF session can't spin the parent
+    # forever (see DOJ LockBit case — uncaught page error → 49 CPU-minutes).
+    class _CamoufoxTimeout(Exception):
+        pass
+
+    def _on_alarm(signum, frame):
+        raise _CamoufoxTimeout()
+
+    prev_handler = signal.signal(signal.SIGALRM, _on_alarm)
+    prev_alarm = signal.alarm(90)
     try:
         with Camoufox(headless=True) as browser:
             page = browser.new_page()
+            # Page-level JS errors otherwise escalate through Playwright's
+            # Node bridge to a fatal that wedges the Python parent.
+            page.on("pageerror", lambda exc: None)
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
             # Give a non-interactive JS challenge time to resolve and set its
@@ -144,7 +203,7 @@ def fetch_with_camoufox(url, output_path, html_fallback):
                 page.wait_for_timeout(4000)
                 if not is_pdf_target(output_path):
                     break  # HTML target — go straight to extraction
-                resp = page.context.request.get(url)
+                resp = page.context.request.get(url, timeout=15000)
                 if resp.ok:
                     body = resp.body()
                     if looks_like_pdf(body):
@@ -172,12 +231,20 @@ def fetch_with_camoufox(url, output_path, html_fallback):
                 f.write(md(html))
             print(f"      Success! Page extracted to {out} (Markdown).")
             return True
+    except _CamoufoxTimeout:
+        print("      camoufox: timed out after 90s.")
+        return False
     except Exception as e:
         print(f"      Error: {e}")
         return False
+    finally:
+        signal.alarm(prev_alarm)
+        signal.signal(signal.SIGALRM, prev_handler)
 
 
 def main():
+    # Show tier-by-tier progress promptly when stdout is piped/backgrounded.
+    sys.stdout.reconfigure(line_buffering=True)
     parser = argparse.ArgumentParser(
         description="Fetch URLs blocked by CDNs (Cloudflare/Akamai): "
                     "curl-cffi -> Wayback -> camoufox.")
@@ -186,12 +253,19 @@ def main():
     parser.add_argument(
         "--html-fallback", action="store_true",
         help="If the PDF can't be retrieved, accept a Markdown rendering of "
-             "the page from the camoufox tier (writes .md) instead of failing.")
+             "the page (writes .md) instead of failing. Honored by both the "
+             "Wayback tier and the camoufox tier.")
+    parser.add_argument(
+        "--skip-wayback", action="store_true",
+        help="Skip the Wayback tier. Use for JS-rendered SPAs whose archive "
+             "snapshots capture only the SSR loading shell.")
     args = parser.parse_args()
 
     if fetch_with_curl_cffi(args.url, args.output):
         return
-    if fetch_from_wayback(args.url, args.output):
+    if not args.skip_wayback and fetch_from_wayback(
+        args.url, args.output, args.html_fallback,
+    ):
         return
     if fetch_with_camoufox(args.url, args.output, args.html_fallback):
         return
