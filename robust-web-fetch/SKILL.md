@@ -1,11 +1,11 @@
 ---
-name: fetch-blocked-pdf
-description: Download PDFs or web pages that are blocked by CDNs like Cloudflare or Akamai. Use when curl or web_fetch fails with 403 Forbidden.
+name: robust-web-fetch
+description: Fetch web source material when ordinary curl, wget, or web_fetch is insufficient, including PDFs, HTML pages, text files, rendered pages, archives, and CDN-blocked sources.
 ---
 
-# Fetch Blocked PDF
+# Robust Web Fetch
 
-Download a PDF or web page when standard tools (`curl`, `wget`, `web_fetch`) are blocked by a CDN such as Cloudflare or Akamai — typically a 403, or an HTTP 200 "Just a moment…" challenge page.
+Fetch web source material when standard tools (`curl`, `wget`, `web_fetch`) are insufficient. This includes PDFs, HTML pages, text files, pages that need browser rendering, archived copies, and sources blocked by a CDN such as Cloudflare or Akamai — typically a 403, or an HTTP 200 "Just a moment…" challenge page.
 
 ## How it works
 
@@ -13,7 +13,7 @@ The bundled script `scripts/fetch.py` escalates through four *independent* strat
 
 1. **curl-cffi** — impersonates a real browser's TLS/HTTP-2 fingerprint. Cheap, no browser, clears the passive-fingerprint majority of blocks (most "curl gets 403" cases). No JavaScript.
 1. **Wayback Machine** — one Internet Archive API call for an archived snapshot. The origin is never touched, so this beats even interactive CAPTCHA and IP-reputation blocks — but only if the document was archived.
-1. **Chromium print-to-PDF** — loads the page in headless Chromium, waits for `networkidle`, and saves the rendered DOM via the browser's own print-to-PDF, exactly what a human does with Ctrl-P. Wins for SPAs whose content arrives via XHR after `domcontentloaded` (the case the camoufox tier's wait condition misses). Has no anti-detect, so an anti-bot CDN still blocks it — that case falls through to tier 4. Only runs for `.pdf` targets.
+1. **Rendered PDF** — loads the page in headless Chromium, waits for `networkidle`, and saves the rendered DOM through the browser's print-to-PDF API. Wins for SPAs whose content arrives via XHR after `domcontentloaded` (the case the camoufox tier's wait condition misses). Has no anti-detect, so an anti-bot CDN still blocks it — that case falls through to tier 4. Only runs for `.pdf` targets.
 1. **camoufox** — an anti-detect Firefox that passes non-interactive JS challenges (the "Just a moment…" interstitial), then downloads the file with the earned clearance cookies.
 
 The script stops at the first tier that produces a valid file. PDFs are verified by magic bytes, so a challenge page is never silently saved as a `.pdf`.
@@ -29,6 +29,8 @@ Add `--html-fallback` to accept a Markdown rendering of the page (written as `.m
 ```bash
 uv run <path-to-skill>/scripts/fetch.py <URL> <output-path.pdf> --html-fallback
 ```
+
+Add `--skip-rendered-pdf` when you specifically need the origin PDF bytes rather than a browser-rendered PDF of the page. The older `--skip-print-pdf` spelling is still accepted as an alias.
 
 ## Prerequisite: `uv`
 
@@ -48,7 +50,7 @@ That official installer is the agnostic default — the **same line works on mac
 Past that one prerequisite, there is nothing else to install ahead of time, and the path is identical for any agent (Claude, Gemini, Codex) on any supported OS (macOS, Ubuntu):
 
 - **Python deps** are declared inline (PEP 723 `# /// script` block). `uv run` reads them and builds an isolated ephemeral environment on first run — same command, same result on macOS and Linux. The only agent-facing interface is the `uv run …` shell command above; there is no agent-specific code or SDK.
-- **The Chromium binary** (~170 MB) used by the print-to-PDF tier is not a pip package. The script fetches it on the first run that reaches tier 3 via `python -m playwright install chromium`, cached per-user (`~/Library/Caches/ms-playwright` on macOS, `~/.cache/ms-playwright` on Linux), so the download is one-time per machine.
+- **The Chromium binary** (~170 MB) used by the rendered-PDF tier is not a pip package. The script fetches it on the first run that reaches tier 3 via `python -m playwright install chromium`, cached per-user (`~/Library/Caches/ms-playwright` on macOS, `~/.cache/ms-playwright` on Linux), so the download is one-time per machine.
 - **The camoufox browser** (a patched Firefox, ~150 MB) is not a pip package. The script fetches it on the first run that reaches tier 4 via `python -m camoufox fetch`, invoked with the *same interpreter* `uv` already resolved — so it needs neither `uv` nor a `camoufox` script on `PATH`. `camoufox fetch` downloads the correct build for the host OS/arch and caches it per-user (`~/Library/Caches/camoufox` on macOS, `~/.cache/camoufox` on Linux), so the download is one-time per machine.
 
 > **Linux Camoufox note:** Do not guess or maintain a broad Firefox dependency list here. If the camoufox tier fails to launch on Linux, check the official Camoufox installation guide first: <https://camoufox.com/python/installation/>. At the time this skill was written, the guide names this minimal Ubuntu command for fresh Linux installs:

@@ -8,7 +8,7 @@
 # ]
 # ///
 
-"""Fetch URLs blocked by CDNs (Cloudflare / Akamai).
+"""Robustly fetch web source material.
 
 Escalates across four *independent* strategies rather than a ladder of
 brittle patches — a defense that adapts to one does not break the others:
@@ -20,7 +20,7 @@ brittle patches — a defense that adapts to one does not break the others:
                       cheap API call; beats even CAPTCHA / IP-reputation
                       because the origin is never touched. Fails only if
                       not archived.
-  3. Chromium print — "render and print": load the page in headless
+  3. Rendered PDF   — "render and save": load the page in headless
                       Chromium and save it via the browser's own
                       print-to-PDF, exactly what a human does with Ctrl-P.
                       Wins for SPAs whose content arrives via XHR after
@@ -46,22 +46,22 @@ from curl_cffi import requests
 from markdownify import markdownify as md
 
 
-IA_HEADERS = {"User-Agent": "fetch-blocked-pdf/1.0 (+https://archive.org)"}
+ARCHIVE_HEADERS = {"User-Agent": "robust-web-fetch/1.0 (+https://archive.org)"}
 
 
-def looks_like_pdf(content):
+def has_pdf_signature(content):
     # PDFs start with %PDF, occasionally after a few stray leading bytes.
     return b"%PDF" in content[:1024]
 
 
-def is_pdf_target(output_path):
+def output_expects_pdf(output_path):
     return output_path.endswith(".pdf")
 
 
-def save_ok(content, output_path):
+def write_valid_output(content, output_path):
     """Write bytes, enforcing the PDF magic-byte check for .pdf targets so a
     CDN HTML challenge page is never silently saved as a PDF."""
-    if is_pdf_target(output_path) and not looks_like_pdf(content):
+    if output_expects_pdf(output_path) and not has_pdf_signature(content):
         return False
     with open(output_path, "wb") as f:
         f.write(content)
@@ -70,7 +70,7 @@ def save_ok(content, output_path):
 
 # --- Tier 1: curl-cffi -------------------------------------------------------
 
-def fetch_with_curl_cffi(url, output_path):
+def attempt_tls_impersonation_download(url, output_path):
     print(f"[1/4] curl-cffi (latest Chrome fingerprint) -> {output_path}")
     try:
         # "chrome" auto-resolves to curl-cffi's newest fingerprint, so this
@@ -80,12 +80,12 @@ def fetch_with_curl_cffi(url, output_path):
             print(f"      HTTP {response.status_code}.")
             return False
         content = response.content
-        if is_pdf_target(output_path) and not looks_like_pdf(content):
+        if output_expects_pdf(output_path) and not has_pdf_signature(content):
             ct = response.headers.get("content-type", "unknown")
             print(f"      HTTP 200 but not a PDF (content-type: {ct}, "
                   f"{len(content)} bytes) — likely a CDN challenge page.")
             return False
-        save_ok(content, output_path)
+        write_valid_output(content, output_path)
         print(f"      Success! {len(content)} bytes.")
         return True
     except Exception as e:
@@ -95,11 +95,11 @@ def fetch_with_curl_cffi(url, output_path):
 
 # --- Tier 2: Wayback Machine -------------------------------------------------
 
-def _ia_get(url, params=None):
+def get_archive_response(url, params=None):
     # archive.org throttles unauthenticated bursts to 429 with an HTML body.
     # Retry once honoring Retry-After; return the Response on 200, else None.
     for attempt in range(2):
-        r = requests.get(url, params=params, headers=IA_HEADERS, timeout=20)
+        r = requests.get(url, params=params, headers=ARCHIVE_HEADERS, timeout=20)
         if r.status_code == 200:
             return r
         if r.status_code == 429 and attempt == 0:
@@ -115,10 +115,10 @@ def _ia_get(url, params=None):
     return None
 
 
-def fetch_from_wayback(url, output_path, html_fallback):
+def attempt_archive_snapshot(url, output_path, html_fallback):
     print("[2/4] Wayback Machine snapshot lookup")
     try:
-        avail_resp = _ia_get(
+        avail_resp = get_archive_response(
             "https://archive.org/wayback/available", params={"url": url},
         )
         if avail_resp is None or not avail_resp.headers.get(
@@ -136,17 +136,17 @@ def fetch_from_wayback(url, output_path, html_fallback):
         ts = snap["timestamp"]
         snap_url = snap["url"].replace(f"/web/{ts}/", f"/web/{ts}id_/", 1)
         print(f"      Snapshot {ts} — downloading raw copy.")
-        r = requests.get(snap_url, timeout=30, headers=IA_HEADERS)
+        r = requests.get(snap_url, timeout=30, headers=ARCHIVE_HEADERS)
         if r.status_code != 200:
             print(f"      Snapshot fetch HTTP {r.status_code}.")
             return False
         # PDF target with a PDF snapshot — save and done.
-        if is_pdf_target(output_path) and looks_like_pdf(r.content):
-            save_ok(r.content, output_path)
+        if output_expects_pdf(output_path) and has_pdf_signature(r.content):
+            write_valid_output(r.content, output_path)
             print(f"      Success! {len(r.content)} bytes from archive.")
             return True
         # PDF target with an HTML snapshot — write Markdown if requested.
-        if is_pdf_target(output_path):
+        if output_expects_pdf(output_path):
             if not html_fallback:
                 print("      Snapshot is not a PDF.")
                 return False
@@ -158,7 +158,7 @@ def fetch_from_wayback(url, output_path, html_fallback):
                   f"(Markdown from archive).")
             return True
         # Non-PDF target — write bytes directly.
-        save_ok(r.content, output_path)
+        write_valid_output(r.content, output_path)
         print(f"      Success! {len(r.content)} bytes from archive.")
         return True
     except Exception as e:
@@ -166,9 +166,9 @@ def fetch_from_wayback(url, output_path, html_fallback):
         return False
 
 
-# --- Tier 3: Chromium print-to-PDF ------------------------------------------
+# --- Tier 3: rendered PDF ----------------------------------------------------
 
-def fetch_with_chromium_print(url, output_path):
+def attempt_rendered_pdf(url, output_path):
     """Render the page in headless Chromium and save it via the browser's own
     print-to-PDF — same path a human takes when they Ctrl-P.
 
@@ -182,11 +182,11 @@ def fetch_with_chromium_print(url, output_path):
 
     Only meaningful for `.pdf` targets — HTML targets skip this tier.
     """
-    if not is_pdf_target(output_path):
-        print("[3/4] Chromium print-to-PDF: skipped (HTML target).")
+    if not output_expects_pdf(output_path):
+        print("[3/4] rendered PDF: skipped (HTML target).")
         return False
 
-    print(f"[3/4] Chromium print-to-PDF -> {output_path}")
+    print(f"[3/4] rendered PDF (Chromium print-to-PDF) -> {output_path}")
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as e:
@@ -261,7 +261,7 @@ def fetch_with_chromium_print(url, output_path):
 
         with open(output_path, "rb") as f:
             head = f.read(1024)
-        if not looks_like_pdf(head):
+        if not has_pdf_signature(head):
             print("      page.pdf produced a non-PDF file.")
             return False
         size = os.path.getsize(output_path)
@@ -280,7 +280,7 @@ def fetch_with_chromium_print(url, output_path):
 
 # --- Tier 4: camoufox --------------------------------------------------------
 
-def fetch_with_camoufox(url, output_path, html_fallback):
+def attempt_antidetect_browser(url, output_path, html_fallback):
     print("[4/4] camoufox (anti-detect browser, passes JS challenges)")
     try:
         from camoufox.sync_api import Camoufox
@@ -323,20 +323,20 @@ def fetch_with_camoufox(url, output_path, html_fallback):
             # clearance cookie, then pull the file with the earned context.
             for attempt in range(4):
                 page.wait_for_timeout(4000)
-                if not is_pdf_target(output_path):
+                if not output_expects_pdf(output_path):
                     break  # HTML target — go straight to extraction
                 resp = page.context.request.get(url, timeout=15000)
                 if resp.ok:
                     body = resp.body()
-                    if looks_like_pdf(body):
-                        save_ok(body, output_path)
+                    if has_pdf_signature(body):
+                        write_valid_output(body, output_path)
                         print(f"      Success! {len(body)} bytes via "
                               f"camoufox-earned cookies.")
                         return True
                 print(f"      Challenge not cleared yet "
                       f"(attempt {attempt + 1}/4)...")
 
-            if is_pdf_target(output_path) and not html_fallback:
+            if output_expects_pdf(output_path) and not html_fallback:
                 print("      Could not retrieve the PDF (interactive CAPTCHA "
                       "or IP-reputation block likely).")
                 return False
@@ -368,8 +368,8 @@ def main():
     # Show tier-by-tier progress promptly when stdout is piped/backgrounded.
     sys.stdout.reconfigure(line_buffering=True)
     parser = argparse.ArgumentParser(
-        description="Fetch URLs blocked by CDNs (Cloudflare/Akamai): "
-                    "curl-cffi -> Wayback -> Chromium print -> camoufox.")
+        description="Robustly fetch web source material: "
+                    "curl-cffi -> Wayback -> rendered PDF -> camoufox.")
     parser.add_argument("url", help="URL to fetch")
     parser.add_argument("output", help="Output file path")
     parser.add_argument(
@@ -382,23 +382,26 @@ def main():
         help="Skip the Wayback tier. Use for JS-rendered SPAs whose archive "
              "snapshots capture only the SSR loading shell.")
     parser.add_argument(
-        "--skip-print-pdf", action="store_true",
-        help="Skip the Chromium print-to-PDF tier. Use when you specifically "
-             "want the origin file (not a rendered page) and only the "
-             "anti-detect tier should attempt the live origin.")
+        "--skip-rendered-pdf", "--skip-print-pdf",
+        action="store_true",
+        dest="skip_rendered_pdf",
+        help="Skip the rendered-PDF tier. Use when you specifically want the "
+             "origin file (not a rendered page) and only the anti-detect tier "
+             "should attempt the live origin. --skip-print-pdf is accepted as "
+             "a backward-compatible alias.")
     args = parser.parse_args()
 
-    if fetch_with_curl_cffi(args.url, args.output):
+    if attempt_tls_impersonation_download(args.url, args.output):
         return
-    if not args.skip_wayback and fetch_from_wayback(
+    if not args.skip_wayback and attempt_archive_snapshot(
         args.url, args.output, args.html_fallback,
     ):
         return
-    if not args.skip_print_pdf and fetch_with_chromium_print(
+    if not args.skip_rendered_pdf and attempt_rendered_pdf(
         args.url, args.output,
     ):
         return
-    if fetch_with_camoufox(args.url, args.output, args.html_fallback):
+    if attempt_antidetect_browser(args.url, args.output, args.html_fallback):
         return
 
     print("\nAll tiers failed. The remaining gates (interactive CAPTCHA or "

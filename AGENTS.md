@@ -9,7 +9,7 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 - `init-agents/SKILL.md` — initialize a directory with AI-agnostic agent context (`AGENTS.md` canonical + pointers from agent-specific instruction files). Description-triggered, so no slash collision with the built-in `/init`.
 - `recommend/SKILL.md` — pause and surface direction-level recommendations or refactors. Slash `/recommend` plus self-triggers on drift signals.
 - `self-evaluate/SKILL.md` — estimate PDCA loops remaining before the work is finished. Cost-driven, phase-agnostic. Investigates (code/env/smoke/web) before estimating. Slash `/self-evaluate`.
-- `fetch-blocked-pdf/SKILL.md` — download CDN-blocked PDFs/pages (Cloudflare/Akamai 403). `curl-cffi` TLS impersonation, optional Playwright HTML-to-Markdown fallback. Description-triggered.
+- `robust-web-fetch/SKILL.md` — fetch web source material when ordinary fetch tools are insufficient: PDFs, HTML, text, rendered pages, archived copies, and CDN-blocked sources. Description-triggered.
 - `transcribe-pdf/SKILL.md` — transcribe a PDF to Markdown for downstream AI reading. Self-contained: bundles `pdf2md.py` as the cheap default plus a page-combine helper, and falls back to vision transcription when the text layer is unrecoverable. Description-triggered.
 
 ## Conventions
@@ -22,7 +22,7 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 
 ## Layout
 
-- `flush/`, `sync/`, `init-agents/`, `recommend/`, `self-evaluate/`, `fetch-blocked-pdf/`, `transcribe-pdf/`, ... — one folder per skill.
+- `flush/`, `sync/`, `init-agents/`, `recommend/`, `self-evaluate/`, `robust-web-fetch/`, `transcribe-pdf/`, ... — one folder per skill.
 - `README.md` — outward-facing description and install instructions.
 - `AGENTS.md` — this file (orientation for any agent working on the repo).
 - `TODO.md` — open items.
