@@ -4,22 +4,31 @@
 #     "curl-cffi",
 #     "camoufox[geoip]",
 #     "markdownify",
+#     "playwright",
 # ]
 # ///
 
 """Fetch URLs blocked by CDNs (Cloudflare / Akamai).
 
-Escalates across three *independent* strategies rather than a ladder of
+Escalates across four *independent* strategies rather than a ladder of
 brittle patches — a defense that adapts to one does not break the others:
 
-  1. curl-cffi  — cheap "fight": real browser TLS/HTTP-2 fingerprint, no JS.
-                  Clears the passive-fingerprint majority of blocks.
-  2. Wayback    — "sidestep": fetch an Internet Archive snapshot. One cheap
-                  API call; beats even CAPTCHA / IP-reputation because the
-                  origin is never touched. Fails only if not archived.
-  3. camoufox   — strong "fight": anti-detect Firefox that passes
-                  non-interactive JS challenges, then pulls the file with
-                  the earned clearance cookies.
+  1. curl-cffi      — cheap "fight": real browser TLS/HTTP-2 fingerprint,
+                      no JS. Clears the passive-fingerprint majority of
+                      blocks.
+  2. Wayback        — "sidestep": fetch an Internet Archive snapshot. One
+                      cheap API call; beats even CAPTCHA / IP-reputation
+                      because the origin is never touched. Fails only if
+                      not archived.
+  3. Chromium print — "render and print": load the page in headless
+                      Chromium and save it via the browser's own
+                      print-to-PDF, exactly what a human does with Ctrl-P.
+                      Wins for SPAs whose content arrives via XHR after
+                      `domcontentloaded` — the case camoufox's wait_until
+                      misses. Loses against anti-bot CDNs (no anti-detect).
+  4. camoufox       — strong "fight": anti-detect Firefox that passes
+                      non-interactive JS challenges, then pulls the file
+                      with the earned clearance cookies.
 
 Residual ceiling (no local tier beats this): interactive CAPTCHA
 (Turnstile/hCaptcha needing a human action) and IP-reputation blocks. The
@@ -27,6 +36,7 @@ only guaranteed bypass there is a paid Web Unlocker service.
 """
 
 import argparse
+import os
 import signal
 import subprocess
 import sys
@@ -61,7 +71,7 @@ def save_ok(content, output_path):
 # --- Tier 1: curl-cffi -------------------------------------------------------
 
 def fetch_with_curl_cffi(url, output_path):
-    print(f"[1/3] curl-cffi (latest Chrome fingerprint) -> {output_path}")
+    print(f"[1/4] curl-cffi (latest Chrome fingerprint) -> {output_path}")
     try:
         # "chrome" auto-resolves to curl-cffi's newest fingerprint, so this
         # stays current as the dependency is upgraded.
@@ -106,7 +116,7 @@ def _ia_get(url, params=None):
 
 
 def fetch_from_wayback(url, output_path, html_fallback):
-    print("[2/3] Wayback Machine snapshot lookup")
+    print("[2/4] Wayback Machine snapshot lookup")
     try:
         avail_resp = _ia_get(
             "https://archive.org/wayback/available", params={"url": url},
@@ -156,10 +166,122 @@ def fetch_from_wayback(url, output_path, html_fallback):
         return False
 
 
-# --- Tier 3: camoufox --------------------------------------------------------
+# --- Tier 3: Chromium print-to-PDF ------------------------------------------
+
+def fetch_with_chromium_print(url, output_path):
+    """Render the page in headless Chromium and save it via the browser's own
+    print-to-PDF — same path a human takes when they Ctrl-P.
+
+    Wins where camoufox loses: React/Vue SPAs whose content arrives via XHR
+    *after* `domcontentloaded`, so camoufox's `wait_until="domcontentloaded"`
+    fires before the article body is rendered. networkidle here covers that.
+
+    Loses where camoufox wins: pages walled by an anti-bot CDN
+    (Cloudflare/Akamai) — vanilla Chromium has no anti-detect, so it gets a
+    challenge page. Tier 4 picks those up.
+
+    Only meaningful for `.pdf` targets — HTML targets skip this tier.
+    """
+    if not is_pdf_target(output_path):
+        print("[3/4] Chromium print-to-PDF: skipped (HTML target).")
+        return False
+
+    print(f"[3/4] Chromium print-to-PDF -> {output_path}")
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as e:
+        print(f"      playwright not available: {e}")
+        return False
+
+    # One-time chromium download (~170MB on first run, cached per-user).
+    print("      Ensuring chromium binary is installed "
+          "(one-time ~170MB download on first run)...")
+    try:
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"],
+                       check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        print(f"      playwright install failed:\n{e.stderr or e.stdout}")
+        return False
+
+    class _PrintTimeout(Exception):
+        pass
+
+    def _on_alarm(signum, frame):
+        raise _PrintTimeout()
+
+    prev_handler = signal.signal(signal.SIGALRM, _on_alarm)
+    prev_alarm = signal.alarm(90)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            ctx = browser.new_context(viewport={"width": 1280, "height": 1800})
+            page = ctx.new_page()
+            # Page-level JS errors otherwise escalate via Playwright's Node
+            # bridge to a fatal that wedges the Python parent.
+            page.on("pageerror", lambda exc: None)
+
+            # networkidle is the right wait for SPAs that load via XHR after
+            # the initial parse. Some sites keep long-poll/SSE connections
+            # open and never go idle; fall back to domcontentloaded plus the
+            # 4 s soak below in that case.
+            try:
+                response = page.goto(url, wait_until="networkidle",
+                                     timeout=45000)
+            except Exception as e:
+                print(f"      networkidle failed ({e}); retrying with "
+                      f"domcontentloaded.")
+                response = page.goto(url, wait_until="domcontentloaded",
+                                     timeout=45000)
+
+            if response is None:
+                print("      No navigation response.")
+                return False
+            if response.status != 200:
+                print(f"      HTTP {response.status} — likely a CDN block. "
+                      f"Tier 4 (camoufox) will retry with anti-detect.")
+                return False
+            ct = response.headers.get("content-type", "")
+            if ct.startswith("application/pdf"):
+                # Native-PDF URL — printing the viewer chrome would give a
+                # wrong PDF. Hand to tier 4, which downloads bytes directly.
+                print(f"      URL serves a native PDF (content-type: {ct}); "
+                      f"tier 4 will pull the file directly.")
+                return False
+
+            # Soak so XHR-driven SPA content can render before print.
+            page.wait_for_timeout(4000)
+            page.pdf(
+                path=output_path,
+                format="A4",
+                print_background=True,
+                margin={"top": "12mm", "bottom": "12mm",
+                        "left": "12mm", "right": "12mm"},
+            )
+            browser.close()
+
+        with open(output_path, "rb") as f:
+            head = f.read(1024)
+        if not looks_like_pdf(head):
+            print("      page.pdf produced a non-PDF file.")
+            return False
+        size = os.path.getsize(output_path)
+        print(f"      Success! {size} bytes printed from rendered page.")
+        return True
+    except _PrintTimeout:
+        print("      Chromium print: timed out after 90s.")
+        return False
+    except Exception as e:
+        print(f"      Error: {e}")
+        return False
+    finally:
+        signal.alarm(prev_alarm)
+        signal.signal(signal.SIGALRM, prev_handler)
+
+
+# --- Tier 4: camoufox --------------------------------------------------------
 
 def fetch_with_camoufox(url, output_path, html_fallback):
-    print("[3/3] camoufox (anti-detect browser, passes JS challenges)")
+    print("[4/4] camoufox (anti-detect browser, passes JS challenges)")
     try:
         from camoufox.sync_api import Camoufox
     except ImportError as e:
@@ -247,7 +369,7 @@ def main():
     sys.stdout.reconfigure(line_buffering=True)
     parser = argparse.ArgumentParser(
         description="Fetch URLs blocked by CDNs (Cloudflare/Akamai): "
-                    "curl-cffi -> Wayback -> camoufox.")
+                    "curl-cffi -> Wayback -> Chromium print -> camoufox.")
     parser.add_argument("url", help="URL to fetch")
     parser.add_argument("output", help="Output file path")
     parser.add_argument(
@@ -259,12 +381,21 @@ def main():
         "--skip-wayback", action="store_true",
         help="Skip the Wayback tier. Use for JS-rendered SPAs whose archive "
              "snapshots capture only the SSR loading shell.")
+    parser.add_argument(
+        "--skip-print-pdf", action="store_true",
+        help="Skip the Chromium print-to-PDF tier. Use when you specifically "
+             "want the origin file (not a rendered page) and only the "
+             "anti-detect tier should attempt the live origin.")
     args = parser.parse_args()
 
     if fetch_with_curl_cffi(args.url, args.output):
         return
     if not args.skip_wayback and fetch_from_wayback(
         args.url, args.output, args.html_fallback,
+    ):
+        return
+    if not args.skip_print_pdf and fetch_with_chromium_print(
+        args.url, args.output,
     ):
         return
     if fetch_with_camoufox(args.url, args.output, args.html_fallback):
