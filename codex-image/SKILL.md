@@ -1,28 +1,32 @@
 ---
-name: generate-image
+name: codex-image
 description: >
   Generate or edit images with OpenAI gpt-image-2, driven through the Codex
-  CLI's built-in imagegen skill (no OPENAI_API_KEY needed — uses the user's
-  ChatGPT auth). Use when asked to "generate an image", "make an
-  illustration/logo/hero/mockup", "gpt-image-2", or to edit/restyle an
-  existing image into a new bitmap asset. Not for SVG/vector/code-native
-  graphics — build those directly instead.
+  CLI's built-in imagegen skill. PRE-CONDITION: the `codex` CLI must be
+  installed and authenticated (`codex login`; a ChatGPT subscription is
+  enough — no OPENAI_API_KEY needed). Use when asked to "generate an image",
+  "make an illustration/logo/hero/mockup", "gpt-image-2", "codex image", or
+  to edit/restyle an existing image into a new bitmap asset. Not for
+  SVG/vector/code-native graphics — build those directly instead.
 ---
 
-# /generate-image — Generate images with gpt-image-2 via Codex
+# /codex-image — Generate images with gpt-image-2 via Codex
 
 Wraps `codex exec` so any coding agent can produce bitmap assets with
 **gpt-image-2** (OpenAI's current image model). Codex's built-in `image_gen`
 tool does the generation server-side using ChatGPT-subscription auth, so this
 works without `OPENAI_API_KEY`.
 
+**Pre-condition:** the Codex CLI must be installed and authenticated. Step 1
+verifies this and stops with instructions if not — never skip it.
+
 ## Usage
 
-1. `/generate-image <description>` — generate, save to `./generated-images/`
-1. `/generate-image <description> --out <folder>` — generate, save to `<folder>`
-1. `/generate-image edit <path/to/image> <instructions>` — edit an existing image
+1. `/codex-image <description>` — generate, save to `./generated-images/`
+1. `/codex-image <description> --out <folder>` — generate, save to `<folder>`
+1. `/codex-image edit <path/to/image> <instructions>` — edit an existing image
 
-## Step 1: Pre-flight
+## Step 1: Pre-flight (the pre-condition gate)
 
 ```bash
 command -v codex >/dev/null || echo "CODEX_MISSING"

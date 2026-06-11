@@ -11,7 +11,7 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 - `self-evaluate/SKILL.md` — estimate PDCA loops remaining before the work is finished. Cost-driven, phase-agnostic. Investigates (code/env/smoke/web) before estimating. Slash `/self-evaluate`.
 - `robust-web-fetch/SKILL.md` — fetch web source material when ordinary fetch tools are insufficient: PDFs, HTML, text, rendered pages, archived copies, and CDN-blocked sources. Description-triggered.
 - `transcribe-pdf/SKILL.md` — transcribe a PDF to Markdown for downstream AI reading. Self-contained: bundles `pdf2md.py` as the cheap default plus a page-combine helper, and falls back to vision transcription when the text layer is unrecoverable. Description-triggered.
-- `generate-image/SKILL.md` — generate or edit bitmap images with OpenAI `gpt-image-2` via the Codex CLI's built-in imagegen skill (`codex exec -s workspace-write`). ChatGPT-subscription auth, no API key. Saves into the current project; edit mode loads the source image first. Slash `/generate-image`.
+- `codex-image/SKILL.md` — generate or edit bitmap images with OpenAI `gpt-image-2` via the Codex CLI's built-in imagegen skill (`codex exec -s workspace-write`). Pre-condition: `codex` installed and authenticated (`codex login`; ChatGPT-subscription auth, no API key). Saves into the current project; edit mode loads the source image first. Slash `/codex-image`.
 
 ## Conventions
 
