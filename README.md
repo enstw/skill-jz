@@ -12,6 +12,7 @@ A personal collection of AI-agent skills. Each top-level directory is one skill;
 - **[robust-web-fetch](./robust-web-fetch/)** — Fetch web source material when ordinary `curl`, `wget`, or `web_fetch` is insufficient, including PDFs, HTML pages, text files, rendered pages, archived copies, and CDN-blocked sources. Description-triggered (no slash command).
 - **[transcribe-pdf](./transcribe-pdf/)** — Transcribe a PDF to Markdown for downstream AI reading (citation lookup, research notes). Self-contained: bundles the offline `pdf2md.py` converter plus a page-combine helper, with macOS/Homebrew and Ubuntu dependency hints. Uses vision fallback only when the text layer is unrecoverable. Description-triggered.
 - **[codex-image](./codex-image/)** — Generate or edit bitmap images with OpenAI `gpt-image-2` by driving the Codex CLI's built-in imagegen skill. Saves into the current project, supports an edit mode, and bundles a gpt-image-2 size/quality/transparency reference. Slash-invocable as `/codex-image`. **Pre-condition:** the `codex` CLI must be installed and authenticated (`codex login`; ChatGPT subscription is enough — no `OPENAI_API_KEY`).
+- **[browser-screenshot](./browser-screenshot/)** — Headless screenshot or rendered-DOM dump of any URL or local HTML/SVG file, hardened against the cold-profile hang that makes naive `--headless --screenshot` commands stall or write nothing (one reused profile + GNU `timeout` hard-kill + `Singleton*` lock cleanup). Bundles `scripts/shot.sh`. Description-triggered.
 
 ## AI-agnostic output
 

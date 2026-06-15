@@ -12,6 +12,7 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 - `robust-web-fetch/SKILL.md` — fetch web source material when ordinary fetch tools are insufficient: PDFs, HTML, text, rendered pages, archived copies, and CDN-blocked sources. Description-triggered.
 - `transcribe-pdf/SKILL.md` — transcribe a PDF to Markdown for downstream AI reading. Self-contained: bundles `pdf2md.py` as the cheap default plus a page-combine helper, and falls back to vision transcription when the text layer is unrecoverable. Description-triggered.
 - `codex-image/SKILL.md` — generate or edit bitmap images with OpenAI `gpt-image-2` via the Codex CLI's built-in imagegen skill (`codex exec -s workspace-write`). Pre-condition: `codex` installed and authenticated (`codex login`; ChatGPT-subscription auth, no API key). Saves into the current project; edit mode loads the source image first. Slash `/codex-image`.
+- `browser-screenshot/SKILL.md` — headless screenshot or rendered-DOM dump of any URL or local HTML/SVG file. Bundles `scripts/shot.sh`, hardened against the cold-profile hang (one reused profile + GNU `timeout` hard-kill + `Singleton*` lock cleanup) that makes naive `--headless --screenshot` stall or write nothing. Description-triggered.
 
 ## Conventions
 
@@ -23,7 +24,7 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 
 ## Layout
 
-- `flush/`, `sync/`, `init-agents/`, `recommend/`, `self-evaluate/`, `robust-web-fetch/`, `transcribe-pdf/`, ... — one folder per skill.
+- `flush/`, `sync/`, `init-agents/`, `recommend/`, `self-evaluate/`, `robust-web-fetch/`, `transcribe-pdf/`, `codex-image/`, `browser-screenshot/`, ... — one folder per skill.
 - `README.md` — outward-facing description and install instructions.
 - `AGENTS.md` — this file (orientation for any agent working on the repo).
 - `TODO.md` — open items.
