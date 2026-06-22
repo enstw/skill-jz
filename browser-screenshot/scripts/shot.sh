@@ -1,37 +1,36 @@
 #!/usr/bin/env bash
 # browser-screenshot — hardened headless screenshot / DOM dump of any URL or local HTML file.
 #
-# A naive `--headless --screenshot` on a Chromium-family browser hangs or writes nothing.
-# This wrapper defends against three independent failure modes:
-#   1. A fresh --user-data-dir is "cold" and a cold headless browser can stall through
-#      first-run profile setup.  -> reuse ONE persistent profile; only the first call is cold.
-#   2. --headless=new does not reliably self-exit; the capture is written, then it idles.
-#      -> wrap every call in GNU `timeout` as an OS-level hard kill (the capture lands first).
-#   3. A killed run leaves Singleton{Lock,Socket,Cookie} that stall the next run.
-#      -> delete them before each launch (safe: runs are sequential and we reap the profile after).
+# Brave/Chrome 149+ removed the one-shot `--headless --screenshot` / `--dump-dom` capture
+# flags (they now render but write nothing), so this drives a headless instance over the
+# DevTools Protocol instead: launch ONE browser with --remote-debugging-port for the whole
+# batch, then capture each page with a tiny Bun CDP client (scripts/cdp-shot.mjs).
 #
-# Reliability extras so it is deterministic even unattended:
-#   * empty capture is retried ONCE (the shared profile is warm by then);
-#   * the GNU `timeout` guard auto-scales with --settle, so a longer settle never out-runs the
-#     hard kill (the old footgun: raise --settle, forget --guard, get a silent empty file);
-#   * concurrent invocations SERIALIZE on a portable mkdir-lock (no flock dependency — macOS
-#     has none) instead of corrupting the one shared profile; a crashed run's lock self-clears.
+# Failure modes it still defends against:
+#   1. Cold profile / slow startup -> wait on the /json/version endpoint with curl --retry
+#      (no fixed sleep); reuse ONE profile so later runs are warm.
+#   2. A wedged browser never returning -> every CDP call is wrapped in GNU `timeout`.
+#   3. Stale Singleton lock from a killed run -> deleted before launch; the browser is reaped
+#      on exit by its unique --remote-debugging-port.
+# Reliability extras: empty capture retried ONCE; the GNU `timeout` guard auto-scales with
+# --settle; concurrent invocations serialize on a portable mkdir-lock (macOS has no flock).
 #
 # Usage:
 #   shot.sh <url|file> [<url|file>...]     screenshot each -> /tmp/shot-<n>.png (or --out)
 #   shot.sh --dump <url|file>              print the loaded DOM to stdout (read synchronous data-*)
 # Flags:  --out <path>   --size WxH (1920x1080)   --settle <ms> (2500)   --guard <sec> (auto)
-# Env:    BROWSER_BIN (override browser path)      SHOT_PROFILE (override profile dir)
-# Note:   one shared profile; concurrent calls serialize automatically (lock).
+# Env:    BROWSER_BIN  BUN_BIN  SHOT_PROFILE  SHOT_PORT
 set -u
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+CDP="$SELF_DIR/cdp-shot.mjs"
 
 usage() {
   cat >&2 <<'EOF'
-browser-screenshot — hardened headless screenshot / DOM dump.
+browser-screenshot — hardened headless screenshot / DOM dump (DevTools Protocol).
   shot.sh <url|file> [<url|file>...]   screenshot each -> /tmp/shot-<n>.png (or --out)
   shot.sh --dump <url|file>            print the loaded DOM to stdout (read synchronous data-*)
 Flags: --out <path>   --size WxH (1920x1080)   --settle <ms> (2500)   --guard <sec> (auto from settle)
-Env:   BROWSER_BIN (browser path)   SHOT_PROFILE (profile dir)
+Env:   BROWSER_BIN  BUN_BIN  SHOT_PROFILE  SHOT_PORT
 EOF
 }
 
@@ -49,18 +48,25 @@ if [ -z "$BROWSER" ]; then
 fi
 [ -n "$BROWSER" ] || { echo "shot: no headless browser found; set BROWSER_BIN" >&2; exit 2; }
 
-# --- GNU timeout is the hard backstop (the browser's own --timeout won't kill a stall) ---
+# --- Bun runs the CDP client (native WebSocket + fetch, no deps) ---
+BUN="${BUN_BIN:-}"; [ -n "$BUN" ] || BUN="$(command -v bun || true)"; [ -n "$BUN" ] || BUN="$HOME/.bun/bin/bun"
+[ -x "$BUN" ] || command -v "$BUN" >/dev/null 2>&1 || { echo "shot: bun required for CDP capture (https://bun.sh)" >&2; exit 2; }
+[ -f "$CDP" ] || { echo "shot: missing CDP client at $CDP" >&2; exit 2; }
+
+# --- GNU timeout is the per-call hard backstop ---
 TIMEOUT="$(command -v gtimeout || command -v timeout || true)"
 [ -n "$TIMEOUT" ] || { echo "shot: GNU timeout required (brew install coreutils)" >&2; exit 2; }
+command -v curl >/dev/null 2>&1 || { echo "shot: curl required" >&2; exit 2; }
 
 PROFILE="${SHOT_PROFILE:-/tmp/browser-shot-profile}"
-SIZE="1920,1080"; SETTLE=2500; GUARD=""; MODE=shot; OUT=""
+PORT="${SHOT_PORT:-9333}"
+SIZE="1920x1080"; SETTLE=2500; GUARD=""; MODE=shot; OUT=""
 args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --dump)    MODE=dump ;;
     --out)     OUT="${2:?--out needs a path}"; shift ;;
-    --size)    SIZE="${2/x/,}"; shift ;;
+    --size)    SIZE="${2:?--size needs WxH}"; shift ;;
     --settle)  SETTLE="${2:?--settle needs ms}"; shift ;;
     --guard)   GUARD="${2:?--guard needs seconds}"; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -71,15 +77,12 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ ${#args[@]} -gt 0 ] || { usage; exit 2; }
+W="${SIZE%x*}"; H="${SIZE#*x}"
 
-# --guard auto-scales with --settle so a longer capture delay never out-runs the hard kill
-# (default settle 2500ms -> guard 6s, matching the original). WARMG covers the cold first run.
-[ -n "$GUARD" ] || GUARD=$(( (SETTLE + 999) / 1000 + 3 ))
-WARMG=$(( GUARD + 14 )); [ "$WARMG" -lt 20 ] && WARMG=20
+# --guard auto-scales with --settle (CDP per-call = load wait + settle + capture)
+[ -n "$GUARD" ] || GUARD=$(( (SETTLE + 999) / 1000 + 8 ))
 
-# --- serialize concurrent invocations on the shared profile (portable; no flock dependency) ---
-# mkdir is atomic on POSIX, so it is the lock primitive. A crashed holder's lock is reclaimed
-# by checking its recorded PID with `kill -0`, so a stale lock never wedges the next run.
+# --- serialize concurrent invocations (portable mkdir-lock; macOS has no flock) ---
 LOCK="$PROFILE.lock"
 ltries=0
 while ! mkdir "$LOCK" 2>/dev/null; do
@@ -88,13 +91,12 @@ while ! mkdir "$LOCK" 2>/dev/null; do
     if [ -n "$lpid" ] && ! kill -0 "$lpid" 2>/dev/null; then rm -rf "$LOCK" 2>/dev/null; continue; fi
   fi
   ltries=$((ltries + 1))
-  [ "$ltries" -gt 300 ] && { echo "shot: profile lock busy ($LOCK) — another capture running?" >&2; exit 3; }
+  [ "$ltries" -gt 300 ] && { echo "shot: profile lock busy ($LOCK)" >&2; exit 3; }
   sleep 0.2
 done
 echo $$ > "$LOCK/pid"
-trap 'rm -rf "$LOCK" 2>/dev/null' EXIT INT TERM
 
-to_url() {  # normalize one arg to a loadable URL
+to_url() {
   case "$1" in
     http://*|https://*|file://*|about:*|data:*) printf '%s' "$1" ;;
     /*) printf 'file://%s' "$1" ;;
@@ -102,33 +104,36 @@ to_url() {  # normalize one arg to a loadable URL
   esac
 }
 
-run() {  # $1 = GNU-timeout seconds; rest = extra browser args
-  local g="$1"; shift
-  rm -f "$PROFILE"/Singleton* 2>/dev/null              # clear stale lock from a prior killed run
-  "$TIMEOUT" -k 2 "$g" "$BROWSER" --headless=new --disable-gpu --no-first-run \
-    --user-data-dir="$PROFILE" --allow-file-access-from-files \
-    --window-size="$SIZE" --hide-scrollbars --timeout="$SETTLE" "$@"
-  local rc=$?
-  pkill -9 -f "user-data-dir=$PROFILE" 2>/dev/null     # reap strays for THIS profile only
-  return $rc
-}
+# --- launch ONE headless browser with remote debugging for the whole batch ---
+PFLAG="remote-debugging-port=$PORT"
+pkill -9 -f "$PFLAG --user-data-dir=$PROFILE" 2>/dev/null
+rm -f "$PROFILE"/Singleton* 2>/dev/null
+"$BROWSER" --headless=new --disable-gpu --no-first-run --user-data-dir="$PROFILE" \
+  --remote-debugging-port="$PORT" --remote-allow-origins='*' --allow-file-access-from-files \
+  about:blank >/dev/null 2>&1 &
+BRAVE_PID=$!
+cleanup() { kill "$BRAVE_PID" 2>/dev/null; pkill -9 -f "$PFLAG --user-data-dir=$PROFILE" 2>/dev/null; rm -rf "$LOCK" 2>/dev/null; }
+trap cleanup EXIT INT TERM
 
-# warm the profile once (only the first call can be cold; the looser guard caps any stall)
-[ -d "$PROFILE" ] || run "$WARMG" --screenshot=/tmp/.shot-warm.png "$(to_url "${args[0]}")" >/dev/null 2>&1
+# wait for the DevTools endpoint (no fixed sleep; covers a cold profile)
+curl -s --retry 40 --retry-delay 1 --retry-connrefused "http://127.0.0.1:$PORT/json/version" >/dev/null 2>&1 \
+  || { echo "shot: devtools endpoint never came up on :$PORT" >&2; exit 4; }
+
+cap() { "$TIMEOUT" -k 2 "$GUARD" "$BUN" "$CDP" "http://127.0.0.1:$PORT" "$1" "$2" "$3" "$SETTLE" "$W" "$H"; }
 
 i=0; rc_all=0
 for a in "${args[@]}"; do
   url="$(to_url "$a")"
   if [ "$MODE" = dump ]; then
-    dom="$(run "$GUARD" --dump-dom "$url" 2>/dev/null)"
-    [ -n "$dom" ] || dom="$(run "$GUARD" --dump-dom "$url" 2>/dev/null)"   # retry once (now warm)
+    dom="$(cap dump "$url" "" 2>/dev/null)"
+    [ -n "$dom" ] || dom="$(cap dump "$url" "" 2>/dev/null)"        # retry once
     if [ -n "$dom" ]; then printf '%s\n' "$dom"; else echo "shot: empty DOM for $a" >&2; rc_all=1; fi
   else
     if   [ -n "$OUT" ] && [ ${#args[@]} -eq 1 ]; then out="$OUT"
     elif [ -n "$OUT" ]; then out="${OUT%.*}-$i.${OUT##*.}"
     else out="/tmp/shot-$i.png"; fi
-    run "$GUARD" --screenshot="$out" "$url" >/dev/null 2>&1
-    [ -s "$out" ] || run "$GUARD" --screenshot="$out" "$url" >/dev/null 2>&1   # retry once (now warm)
+    cap shot "$url" "$out" >/dev/null 2>&1
+    [ -s "$out" ] || cap shot "$url" "$out" >/dev/null 2>&1         # retry once
     if [ -s "$out" ]; then echo "$a  ->  $out  ($(wc -c <"$out" | tr -d ' ') bytes)"
     else echo "$a  ->  FAILED (empty / no file)"; rc_all=1; fi
   fi

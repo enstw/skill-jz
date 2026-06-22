@@ -9,19 +9,19 @@ Capture a headless screenshot — or dump the rendered DOM — of any URL or loc
 
 ## Why a skill, not a raw `--headless --screenshot`
 
-A naive headless invocation hangs or returns nothing. The bundled `scripts/shot.sh` neutralizes three *independent* causes, so the capture is deterministic instead of flaky:
+**The one-shot flags are gone.** Brave/Chrome **149+** removed the legacy headless capture commands — `--headless --screenshot` and `--dump-dom` now render but write nothing (silent empty file, no error). So `scripts/shot.sh` drives a headless instance over the **DevTools Protocol** instead: it launches ONE browser with `--remote-debugging-port` for the whole batch and captures each page with a tiny Bun CDP client (`scripts/cdp-shot.mjs`, `Page.captureScreenshot`). Bun is used only because it ships a native `WebSocket` + `fetch`, so the CDP client needs zero dependencies.
 
-1. **Cold profile.** A fresh `--user-data-dir` makes the browser stall through first-run setup. The script reuses **one** persistent profile, so only the very first call is cold; every later call is warm and fast. (Using a new dir per call — the common mistake — makes *every* call hang.)
-1. **No self-exit.** `--headless=new` writes the capture in ~2 s but then idles instead of quitting, so a naive run never returns. Every call is force-ended by a GNU `timeout` wrapper; the screenshot lands before the kill.
-1. **Stale lock.** A killed run leaves `Singleton{Lock,Socket,Cookie}` in the profile; the next run stalls trying to reach the dead instance. The script deletes them before each launch (safe — runs are sequential and it reaps the profile's processes after each call).
+On top of that it neutralizes the classic flakiness, so capture is deterministic instead of flaky:
 
-The browser's *own* `--timeout` flag is a capture/settle delay, **not** a process kill, so it cannot prevent the hang on its own — the OS-level GNU `timeout` is what guarantees termination.
+1. **Cold profile / slow startup.** It waits on the `/json/version` endpoint with `curl --retry` (no fixed `sleep`), and reuses **one** persistent profile so later runs are warm.
+1. **Wedged browser.** Every CDP call is wrapped in a GNU `timeout`; the browser is reaped on exit by its unique `--remote-debugging-port`, so nothing is left running.
+1. **Stale lock.** A killed run can leave `Singleton{Lock,Socket,Cookie}` in the profile; they're deleted before each launch.
 
-On top of those, three reliability guarantees make it deterministic unattended:
+Plus three reliability guarantees for unattended use:
 
-1. **Retry once.** An empty capture (the classic cold first call) is retried a single time — the shared profile is warm by then — so the *first* call no longer needs a manual re-run.
-1. **Guard auto-scales with `--settle`.** `--guard` defaults to `ceil(settle/1000)+3` s, so raising `--settle` for a heavy page can never let the hard kill fire *before* the capture lands (the old footgun: bump settle, forget guard, get a silent empty file). Pass `--guard` only to override.
-1. **Concurrency lock.** Parallel invocations serialize on a portable atomic `mkdir` lock (macOS has no `flock`) instead of corrupting the one shared profile; a crashed run's lock self-clears via its recorded PID.
+1. **Retry once.** An empty capture is retried a single time (the browser is up by then), so a transient miss doesn't need a manual re-run.
+1. **Guard auto-scales with `--settle`.** `--guard` defaults to `ceil(settle/1000)+8` s, so raising `--settle` for a heavy page can never let the hard kill fire *before* the capture lands. Pass `--guard` only to override.
+1. **Concurrency lock.** Parallel invocations serialize on a portable atomic `mkdir` lock (macOS has no `flock`) instead of fighting over the one shared profile / debug port; a crashed run's lock self-clears via its recorded PID.
 
 ## How to use
 
@@ -39,9 +39,11 @@ Arguments are URLs or local paths (relative paths resolve against `$PWD`; bare p
 | `--out <path>` | `/tmp/shot-<n>.png` | output file (multi-input appends `-<n>`) |
 | `--size WxH` | `1920x1080` | viewport |
 | `--settle <ms>` | `2500` | wait before capture (lets entrance animations / async render finish) |
-| `--guard <sec>` | auto: `ceil(settle/1000)+3` | OS-level hard kill; auto-tracks `--settle`. Override only to force a value. |
+| `--guard <sec>` | auto: `ceil(settle/1000)+8` | OS-level hard kill per CDP call; auto-tracks `--settle`. Override only to force a value. |
 | `BROWSER_BIN` | auto (Brave→Chrome→Chromium) | browser binary |
+| `BUN_BIN` | auto (`bun` on PATH, else `~/.bun/bin/bun`) | Bun runtime for the CDP client |
 | `SHOT_PROFILE` | `/tmp/browser-shot-profile` | reused profile dir |
+| `SHOT_PORT` | `9333` | DevTools remote-debugging port |
 
 ## Reading a page's self-check (`#debug`-style)
 
@@ -51,10 +53,10 @@ To read values a page computes for itself, have the page write them **synchronou
 <path-to-skill>/scripts/shot.sh --dump 'file:///path/index.html#debug' | grep -oE 'data-[a-z]+="[^"]*"'
 ```
 
-`--dump-dom` captures at `load`, so values set in an async callback (e.g. `document.fonts.ready.then(...)`) may not appear — compute them synchronously where possible. Page `console.log` is **not** reachable: Brave routes it through the DevTools protocol, not stderr, so `--enable-logging` does not surface it.
+`--dump` reads the DOM *after* the same `--settle` wait as a screenshot, so values set in an async callback (e.g. `document.fonts.ready.then(...)`) **do** appear — synchronous is still safest, but the async ones are no longer lost. Page `console.log` is not reachable via stderr; if you need a computed value directly, the bundled CDP client also has an `eval` mode (`bun scripts/cdp-shot.mjs <endpoint> eval <url> '<jsExpr>' …`).
 
 ## Requirements
 
 - A Chromium-family browser. On macOS without Chrome, Brave works (`/Applications/Brave Browser.app`); set `BROWSER_BIN` otherwise.
-- GNU `timeout` (`brew install coreutils` → `/opt/homebrew/bin/timeout`, or `gtimeout`).
-- Must be `--headless=new` (plain `--headless` writes nothing) — already set by the script.
+- [Bun](https://bun.sh) for the CDP client (native WebSocket + fetch, no npm deps); set `BUN_BIN` if not on `PATH`.
+- GNU `timeout` (`brew install coreutils` → `gtimeout`) and `curl`.
