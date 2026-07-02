@@ -6,8 +6,9 @@ description: >
   installed and authenticated (`codex login`; a ChatGPT subscription is enough
   — no OPENAI_API_KEY needed). Use when asked to "generate an image", "make an
   illustration/hero/mockup/slide image", "gpt-image-2", or "img2". This is the
-  single-image primitive that /deck-img2 calls once per slide. Not for
-  SVG/vector/code-native graphics — build those directly instead.
+  single-image primitive that /deck-image calls once per slide (its nano-banana
+  sibling is /img-nb, same CLI contract). Not for SVG/vector/code-native
+  graphics — build those directly instead.
 ---
 
 # /img2 — one gpt-image-2 image via Codex
@@ -21,7 +22,8 @@ The whole call is wrapped in `gen-image.sh` (in this skill folder), which is
 the single source of truth for the codex invocation. It mirrors how the gstack
 `/codex` skill drives codex: a binary + auth gate, a `gtimeout`/`timeout`
 wrapper, `codex exec` with stdin closed, and a parseable `IMAGE_PATH:` stdout
-contract. `/deck-img2` reuses this exact script.
+contract. `/deck-image` reuses this exact script; `img-nb/gen-image.sh` (nano
+banana via agy) honors the same contract.
 
 ## Usage
 
