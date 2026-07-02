@@ -73,9 +73,20 @@ correctly:
    beside the HTML (fonts, images). It renders from `file://`.
 1. **Fonts**: canvas-design's bundled `canvas-fonts/` are Latin-only. For CJK
    either rely on system fonts (macOS PingFang) or — for project work that
-   must match a house look — copy the project's CJK font beside the HTML
-   (e.g. the thesisbug template's house-style `ENSFont.woff2`) and
-   `@font-face` it.
+   must match a house look — copy the project's CJK font beside the HTML and
+   `@font-face` it. For the thesisbug template that is house-style's ENSFont
+   (verified working through render.sh from `file://`):
+
+   ```css
+   /* font file copied from <repo>/.agents/skills/house-style/assets/fonts/ */
+   @font-face {
+     font-family: 'ENS Font';
+     src: url('ENSFont.woff2') format('woff2');
+     font-weight: 100 900;
+     font-style: normal;
+   }
+   .stage { font-family: 'ENS Font', "PingFang TC", sans-serif; }
+   ```
 1. **Keep the `.html` source next to the output PNG** — it is the editable
    original; the PNG is a build artifact.
 
