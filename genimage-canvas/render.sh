@@ -1,54 +1,160 @@
 #!/usr/bin/env bash
-# render.sh — rasterize ONE hand-authored HTML composition to a PNG via the
-# browser-screenshot skill. This is the mechanical half of /genimage-canvas; the
-# creative half is the agent authoring the HTML following the canvas-design
-# skill's design-philosophy method (see SKILL.md).
+# render.sh — draw ONE designed image by asking Claude Code's stock
+# canvas-design skill to author an HTML composition, then rasterizing it via
+# browser-screenshot.
 #
-# Usage:   render.sh <src.html> <output_path.png> ["WxH" (default 1920x1080)]
+# Usage:   render.sh "<brief | src.html>" "<output_path.png>" ["WxH" (default 1920x1080)]
 # Success: prints  IMAGE_OK <abs_path>   and exits 0
-# Failure: prints  IMAGE_FAIL <reason>   and exits non-zero (2/3/5)
+# Failure: prints  IMAGE_FAIL <reason>   and exits non-zero (2/3/4/5/124)
 #
-# Same IMAGE_OK/IMAGE_FAIL contract as genimage-img2/gen-image.sh and genimage-nb/gen-image.sh
-# — the third interchangeable per-slide primitive for /deck-image. The input
-# differs by nature: a drawn composition starts from an HTML file the agent
-# authored, not from a prompt.
+# Same IMAGE_OK/IMAGE_FAIL contract as genimage-img2/gen-image.sh and
+# genimage-nb/gen-image.sh — the third interchangeable per-slide primitive for
+# /deck-image. If the first argument is an existing .html file, the script skips
+# Claude and just re-renders that source.
 #
-# Dependency gates:
-#   browser-screenshot  HARD — nothing to rasterize with without it.
-#   canvas-design       SOFT (stderr warning) — the authoring philosophy; a
-#                       missing copy can't stop an already-authored HTML from
-#                       rendering, but the warning flags that the composition
-#                       was likely authored without the method.
+# Env overrides:
+#   GENCANVAS_TIMEOUT     wall-clock seconds for the Claude authoring run (default 600)
+#   GENCANVAS_CLAUDE_BIN  Claude Code binary (default: claude)
+#   GENCANVAS_SHOT        browser-screenshot shot.sh path override
 
 set -uo pipefail
 
-SRC="${1:-}"
+fail() {
+  rc="$1"; shift
+  echo "IMAGE_FAIL $*"
+  exit "$rc"
+}
+
+INPUT="${1:-}"
 OUT="${2:-}"
 SIZE="${3:-1920x1080}"
+TIMEOUT_SECS="${GENCANVAS_TIMEOUT:-600}"
+CLAUDE_BIN="${GENCANVAS_CLAUDE_BIN:-${CLAUDE_BIN:-claude}}"
 
-[ -n "$SRC" ] && [ -n "$OUT" ] || {
-  echo "IMAGE_FAIL usage: render.sh <src.html> <output.png> [WxH]"; exit 2; }
-[ -f "$SRC" ] || { echo "IMAGE_FAIL source HTML not found: $SRC"; exit 2; }
-
-SHOT="$HOME/.claude/skills/browser-screenshot/scripts/shot.sh"
-[ -x "$SHOT" ] || {
-  echo "IMAGE_FAIL browser-screenshot skill missing — install/link it at ~/.claude/skills/browser-screenshot (its scripts/shot.sh does the rasterizing)"; exit 3; }
-
-[ -f "$HOME/.claude/skills/canvas-design/SKILL.md" ] || \
-  echo "WARN canvas-design skill missing — /genimage-canvas compositions should follow its design-philosophy method; install: copy skills/canvas-design/ from https://github.com/anthropics/skills into ~/.claude/skills/" >&2
+[ -n "$INPUT" ] && [ -n "$OUT" ] || fail 2 'usage: render.sh "<brief | src.html>" <output.png> [WxH]'
 
 mkdir -p "$(dirname "$OUT")" 2>/dev/null || true
+OUT_DIR="$(cd "$(dirname "$OUT")" 2>/dev/null && pwd)" || fail 2 "cannot create output directory: $(dirname "$OUT")"
+ABS_OUT="$OUT_DIR/$(basename "$OUT")"
+HTML_OUT="${ABS_OUT%.*}.html"
+WORK_DIR="$(dirname "$HTML_OUT")"
 
-"$SHOT" "$SRC" --size "$SIZE" --out "$OUT" >&2
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+SHOT="${GENCANVAS_SHOT:-}"
+if [ -z "$SHOT" ]; then
+  for candidate in \
+    "$HOME/.claude/skills/browser-screenshot/scripts/shot.sh" \
+    "$HOME/.codex/skills/browser-screenshot/scripts/shot.sh" \
+    "$SELF_DIR/../browser-screenshot/scripts/shot.sh"; do
+    [ -x "$candidate" ] && { SHOT="$candidate"; break; }
+  done
+fi
+[ -x "$SHOT" ] || fail 3 "browser-screenshot skill missing — set GENCANVAS_SHOT or link browser-screenshot so scripts/shot.sh is executable"
+
+_TO=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
+run_with_timeout() {
+  if [ -n "$_TO" ]; then "$_TO" "$TIMEOUT_SECS" "$@"; else "$@"; fi
+}
+
+author_with_claude() {
+  command -v "$CLAUDE_BIN" >/dev/null 2>&1 || [ -x "$CLAUDE_BIN" ] || \
+    fail 3 "claude CLI not found — install Claude Code or set GENCANVAS_CLAUDE_BIN"
+
+  [ -f "$HOME/.claude/skills/canvas-design/SKILL.md" ] || \
+    fail 4 "Claude canvas-design skill missing — install/link the stock skill at ~/.claude/skills/canvas-design"
+
+  _LOG=$(mktemp "${TMPDIR:-/tmp}/gencanvas-XXXXXX.log")
+  _PROMPT_FILE=$(mktemp "${TMPDIR:-/tmp}/gencanvas-XXXXXX.prompt")
+  # Heredoc deliberately NOT nested in $() — old bash (macOS 3.2) mis-parses
+  # quotes inside $(cat <<EOF). The prompt is fed to claude -p via stdin.
+  cat > "$_PROMPT_FILE" <<EOF
+Use the canvas-design skill (if the Skill tool is unavailable, Read
+~/.claude/skills/canvas-design/SKILL.md and follow it) to create one polished
+static design from this brief — but express the final canvas as HTML/CSS/SVG
+instead of the skill's usual PNG/PDF; this wrapper rasterizes the HTML for you
+afterwards.
+
+Brief:
+$INPUT
+
+Hard requirements for this wrapper:
+- Write exactly one self-contained HTML file to this absolute path:
+  $HTML_OUT
+- The canvas must be exactly $SIZE. Use one fixed-size stage, body margin 0,
+  and overflow hidden so the page renders without scrollbars.
+- HTML/CSS/SVG only; no network resources.
+- Fonts: @font-face the canvas-design skill's bundled fonts by ABSOLUTE path,
+  e.g. src: url('file://$HOME/.claude/skills/canvas-design/canvas-fonts/<Name>.ttf')
+  — the rasterizer allows cross-directory file access — or use system fonts.
+  For CJK text use a system CJK font (e.g. "PingFang TC" on macOS) unless the
+  brief names a font file.
+- Keep text sparse and exact. Preserve any user-requested in-image text
+  verbatim, including language and punctuation.
+- The design-philosophy .md the skill produces may sit beside the HTML; create
+  no other files. Do not rasterize a PNG/PDF yourself, open a browser, or take
+  screenshots. Once the HTML — including the skill's refinement pass — is
+  final, stop.
+- Print the final absolute HTML path on its own line prefixed exactly with
+  "HTML_PATH:".
+EOF
+
+  (cd "$WORK_DIR" && run_with_timeout "$CLAUDE_BIN" -p \
+    --permission-mode acceptEdits \
+    --allowedTools "Skill,Read,Write,Edit" \
+    --add-dir "$WORK_DIR" \
+    --no-session-persistence \
+    < "$_PROMPT_FILE" > "$_LOG" 2>&1)
+  RC=$?
+  rm -f "$_PROMPT_FILE"
+
+  PARSED=$(grep -aEo 'HTML_PATH:[[:space:]]*[^[:space:]].*' "$_LOG" | tail -1 | sed -E 's/^HTML_PATH:[[:space:]]*//')
+  if [ -n "$PARSED" ] && [ -f "$PARSED" ] && [ "$PARSED" != "$HTML_OUT" ]; then
+    cp -f "$PARSED" "$HTML_OUT" 2>/dev/null || true
+  fi
+
+  # On failure: tail to stderr, keep the full log on disk, IMAGE_FAIL names it.
+  if [ "$RC" = "124" ] && [ -s "$HTML_OUT" ]; then
+    echo "WARN claude hit ${TIMEOUT_SECS}s after authoring HTML; continuing with $HTML_OUT" >&2
+  elif [ "$RC" = "124" ]; then
+    tail -8 "$_LOG" | sed 's/^/  claude| /' >&2
+    echo "IMAGE_FAIL claude stalled past ${TIMEOUT_SECS}s while authoring HTML (full log: $_LOG)"
+    exit 124
+  elif [ "$RC" -ne 0 ] && [ -s "$HTML_OUT" ]; then
+    echo "WARN claude exited $RC after authoring HTML; continuing with $HTML_OUT" >&2
+  elif [ "$RC" -ne 0 ]; then
+    tail -10 "$_LOG" | sed 's/^/  claude| /' >&2
+    echo "IMAGE_FAIL claude exited $RC before authoring HTML (full log: $_LOG)"
+    exit 5
+  fi
+
+  if [ ! -s "$HTML_OUT" ]; then
+    tail -10 "$_LOG" | sed 's/^/  claude| /' >&2
+    echo "IMAGE_FAIL claude did not author HTML at $HTML_OUT (full log: $_LOG)"
+    exit 5
+  fi
+  rm -f "$_LOG"
+}
+
+case "$INPUT" in
+  *.html|*.htm)
+    [ -f "$INPUT" ] || fail 2 "source HTML not found: $INPUT"
+    SRC="$INPUT"
+    ;;
+  *)
+    author_with_claude
+    SRC="$HTML_OUT"
+    ;;
+esac
+
+"$SHOT" "$SRC" --size "$SIZE" --out "$ABS_OUT" >&2
 RC=$?
 
-if [ "$RC" -ne 0 ] || [ ! -s "$OUT" ]; then
-  echo "IMAGE_FAIL rasterize failed (shot.sh exit $RC) — check the HTML opens cleanly in a browser and see the shot.sh output above"
-  rm -f "$OUT"; exit 5
+if [ "$RC" -ne 0 ] || [ ! -s "$ABS_OUT" ]; then
+  echo "IMAGE_FAIL rasterize failed (shot.sh exit $RC) — check the HTML opens cleanly in a browser and see shot.sh output above"
+  rm -f "$ABS_OUT"; exit 5
 fi
 
-file "$OUT" 2>/dev/null | grep -q "PNG image data" || {
-  echo "IMAGE_FAIL output is not a PNG — shot.sh produced something unexpected at $OUT"; exit 5; }
+file "$ABS_OUT" 2>/dev/null | grep -q "PNG image data" || \
+  fail 5 "output is not a PNG — shot.sh produced something unexpected at $ABS_OUT"
 
-ABS=$(cd "$(dirname "$OUT")" && printf '%s/%s' "$(pwd)" "$(basename "$OUT")")
-echo "IMAGE_OK $ABS"
+echo "IMAGE_OK $ABS_OUT"

@@ -2,36 +2,35 @@
 name: genimage-canvas
 description: >
   Draw a single designed image (poster, cover, slide, hero, art piece) by
-  authoring an HTML composition following the canvas-design skill's
-  design-philosophy method, then rasterizing it to PNG with the
-  browser-screenshot skill. DEPENDS ON both: canvas-design (the authoring
-  method — pre-flight STOPS if missing) and browser-screenshot (the
-  rasterizer — render.sh fails clearly if missing). Exact on-image text by
-  construction — no AI-image garbling, ideal for CJK — no external CLI, no
-  cost. Same IMAGE_OK/IMAGE_FAIL contract as /genimage-img2 and /genimage-nb; this is the
-  drawn-renderer primitive /deck-image calls per slide. Use when asked to
-  "draw/design an image by hand", "genimage-canvas" (old name "img-canvas"), or when exact text matters
+  shelling out to Claude Code's stock canvas-design skill to author an exact
+  HTML/CSS/SVG composition, then rasterizing that HTML to PNG with the
+  browser-screenshot skill. PRE-CONDITION: the `claude` CLI must be installed
+  and authenticated, with the stock canvas-design skill available at
+  ~/.claude/skills/canvas-design. Same IMAGE_OK/IMAGE_FAIL contract as
+  /genimage-img2 and /genimage-nb; this is the hand-drawn renderer primitive
+  /deck-image calls per slide. Use when asked to "draw/design an image by
+  hand", "genimage-canvas" (old name "img-canvas"), or when exact text matters
   more than photorealism.
 ---
 
-# /genimage-canvas — one hand-drawn image via canvas-design + browser-screenshot
+# /genimage-canvas — one hand-drawn image via Claude canvas-design
 
-Produces one bitmap by **drawing it**, not generating it: the agent authors a
-fixed-size HTML composition per the **canvas-design** skill's method (design
-philosophy first, then visual expression), and `render.sh` (in this skill
-folder) rasterizes it headlessly via the **browser-screenshot** skill.
+Produces one bitmap by **drawing it**, not generating it. The wrapper script
+`render.sh` shells out to `claude -p`, asks Claude Code's stock
+**canvas-design** skill to author a fixed-size HTML/CSS/SVG composition, saves
+that editable `.html` beside the output, then rasterizes it through the
+**browser-screenshot** skill.
 
-Division of labor — this skill is deliberately thin:
+This mirrors the sibling primitive shape:
 
 ```
-canvas-design        HOW to design (philosophy → composition)   ← authoring dependency
-genimage-canvas           the workflow + the IMAGE_OK contract       ← THIS skill
-browser-screenshot   headless Chrome rasterizer (shot.sh)       ← rendering dependency
+genimage-img2     prompt -> gpt-image-2 -> PNG
+genimage-nb       prompt -> agy/nano-banana -> PNG
+genimage-canvas   prompt -> claude/canvas-design -> HTML -> PNG
 ```
 
-Versus the sibling primitives: /genimage-img2 and /genimage-nb *generate* (photorealism,
-illustration); /genimage-canvas *draws* (designed layouts, typography, exact
-text). All three share the contract, so /deck-image can mix them per slide.
+All three share the parseable `IMAGE_OK` / `IMAGE_FAIL` contract, so
+`/deck-image` can call them interchangeably.
 
 ## Usage
 
@@ -41,84 +40,106 @@ text). All three share the contract, so /deck-image can mix them per slide.
 1. Re-render after an edit: tweak the `.html`, re-run `render.sh` — same
    image path, deterministic.
 
-## Step 1: Pre-flight (the dependency gate)
+## Step 1: Pre-flight
 
 ```bash
+command -v claude >/dev/null || echo "CLAUDE_MISSING"
 [ -f "$HOME/.claude/skills/canvas-design/SKILL.md" ] || echo "CANVAS_DESIGN_MISSING"
-[ -x "$HOME/.claude/skills/browser-screenshot/scripts/shot.sh" ] || echo "BROWSER_SCREENSHOT_MISSING"
+[ -x "$HOME/.claude/skills/browser-screenshot/scripts/shot.sh" ] || \
+  [ -x "$HOME/.codex/skills/browser-screenshot/scripts/shot.sh" ] || \
+  echo "BROWSER_SCREENSHOT_MISSING"
 ```
 
+`render.sh` checks these itself and emits `IMAGE_FAIL`, so this probe is
+optional.
+
+1. `CLAUDE_MISSING` → stop: "Claude Code CLI not found — install Claude Code."
 1. `CANVAS_DESIGN_MISSING` → **stop**: "the canvas-design skill is required
-   (it's the authoring method) — install: copy `skills/canvas-design/` from
-   https://github.com/anthropics/skills into `~/.claude/skills/`."
+   because `render.sh` asks Claude to use its stock design skill."
 1. `BROWSER_SCREENSHOT_MISSING` → **stop**: "the browser-screenshot skill is
-   required (it rasterizes the composition) — link it at
-   `~/.claude/skills/browser-screenshot`."
+   required because it rasterizes the HTML."
 
-(`render.sh` re-checks both itself: browser-screenshot as a hard
-`IMAGE_FAIL`, canvas-design as a stderr `WARN` — an already-authored HTML can
-still render, but the warning flags that the method was skipped.)
+Useful env overrides:
 
-## Step 2: Author the composition (the canvas-design half)
+- `GENCANVAS_CLAUDE_BIN` — Claude Code binary path.
+- `GENCANVAS_SHOT` — explicit `browser-screenshot/scripts/shot.sh` path.
+- `GENCANVAS_TIMEOUT` — authoring timeout in seconds, default `600`.
 
-**Read `~/.claude/skills/canvas-design/SKILL.md` and follow it** — philosophy
-first (name the movement, articulate how it manifests in space/form/color),
-then express it visually. Constraints that make the result rasterize
-correctly:
+## Step 2: Resolve inputs
 
-1. **Fixed-size stage, no scroll**: one wrapper element locked to the target
-   pixel size (default 1920×1080; match whatever `WxH` you'll pass to
-   `render.sh`), `margin:0`, `overflow:hidden` on body.
-1. **Self-contained**: inline CSS/SVG; reference only local files that sit
-   beside the HTML (fonts, images). It renders from `file://`.
-1. **Fonts**: canvas-design's bundled `canvas-fonts/` are Latin-only. For CJK
-   either rely on system fonts (macOS PingFang) or — for project work that
-   must match a house look — copy the project's CJK font beside the HTML and
-   `@font-face` it. For the thesisbug template that is house-style's ENSFont
-   (verified working through render.sh from `file://`):
+1. **Description** — pass the user's brief near-verbatim. If generic, lightly
+   structure it with subject, style, composition, palette, and exact text
+   requirements, but do not invent brands, people, or in-image text.
+1. **Output path** — `--out <path.png>` if given, else
+   `./generated-images/<slug>.png`. The wrapper writes the editable source
+   beside it as `<slug>.html`.
+1. **Size** — third arg to `render.sh`, default `1920x1080`. Use exact pixel
+   dimensions when a deck, card, or social image workflow requires them.
 
-   ```css
-   /* font file copied from <repo>/.agents/skills/house-style/assets/fonts/ */
-   @font-face {
-     font-family: 'ENS Font';
-     src: url('ENSFont.woff2') format('woff2');
-     font-weight: 100 900;
-     font-style: normal;
-   }
-   .stage { font-family: 'ENS Font', "PingFang TC", sans-serif; }
-   ```
-1. **Keep the `.html` source next to the output PNG** — it is the editable
-   original; the PNG is a build artifact.
+For CJK or house fonts, include that in the brief. The Claude subprocess writes
+markup; exact text is the reason to use this primitive. Fonts resolve without
+copying files: the subprocess is told to `@font-face` canvas-design's bundled
+`canvas-fonts/` by absolute path (the rasterizer runs with
+`--allow-file-access-from-files`) and to fall back to system CJK fonts
+(PingFang on macOS). A house font is the one case that needs a file beside the
+HTML — copy it there yourself and name it in the brief.
 
-## Step 3: Rasterize
+## Step 3: Run
+
+One call. Let the Bash call run up to ~10 minutes.
 
 ```bash
-~/.claude/skills/genimage-canvas/render.sh "<slug>.html" "generated-images/<slug>.png" "1920x1080"
+<path-to-skill>/render.sh \
+  "<DESCRIPTION>" \
+  "generated-images/<slug>.png" \
+  "1920x1080"
 ```
 
-The contract (same as /genimage-img2, /genimage-nb):
+The script's contract:
 
-- `IMAGE_OK <abs_path>` on stdout + exit 0 → the saved PNG.
-- `IMAGE_FAIL <reason>` + non-zero exit → relay the reason.
+- `IMAGE_OK <abs_path>` on stdout + exit 0 → parse the path, it is the saved PNG.
+- `IMAGE_FAIL <reason>` + non-zero exit → relay the reason to the user.
+
+The editable HTML source is saved beside the PNG with the same basename. The
+subprocess may also leave a design-philosophy `.md` beside it — that is part
+of the canvas-design method, keep it with the source.
+
+## Re-rendering HTML
+
+To re-render after manual edits, pass the HTML source as the first argument:
+
+```bash
+<path-to-skill>/render.sh \
+  "generated-images/<slug>.html" \
+  "generated-images/<slug>.png" \
+  "1920x1080"
+```
+
+In this mode `render.sh` skips Claude and only runs browser-screenshot.
 
 ## Step 4: Verify and show
 
-1. **Open the PNG with your image-capable file reader** — a drawn composition
-   deserves an eyeball: spacing, contrast, nothing clipped at the edges.
+1. **Open the PNG with your image-capable file reader**: spacing, contrast,
+   edge clipping, and exact text matter.
 1. Confirm dimensions match the request (`file "<path>"`).
 1. Report the saved path and note the `.html` source location for future
    edits.
-1. If something is off, edit the HTML and re-run Step 3 — iterate on source,
+1. If something is off, edit the HTML and re-run — iterate on source,
    never retouch the PNG.
 
 ## Error handling
 
-1. `IMAGE_FAIL rasterize failed` → open the `.html` in a browser (or
-   `shot.sh --dump` it) to find the rendering error; fix the source.
+1. `IMAGE_FAIL claude CLI not found` → install Claude Code or set
+   `GENCANVAS_CLAUDE_BIN`.
+1. `IMAGE_FAIL Claude canvas-design skill missing` → install/link Claude's
+   stock `canvas-design` skill under `~/.claude/skills/canvas-design`.
+1. `IMAGE_FAIL claude did not author HTML` / `claude exited N` / `claude
+   stalled` → the IMAGE_FAIL line names the full subprocess log; read it.
+   Usually auth, permissions, or a refusal to write the requested file.
 1. `IMAGE_FAIL browser-screenshot skill missing` → install/link the
-   dependency, per Step 1.
-1. `WARN canvas-design skill missing` on stderr → the render still ran, but
-   go back and do Step 1 properly before authoring anything new.
+   dependency or set `GENCANVAS_SHOT`.
+1. `IMAGE_FAIL rasterize failed` → open the `.html` in a browser or run
+   `shot.sh --dump` to find the rendering issue; fix the source and re-render.
 
 ## Important rules
 
