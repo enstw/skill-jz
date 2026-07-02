@@ -24,14 +24,15 @@
 #     exits — NEVER pipe agy's output; redirect to a file.
 #
 # Env overrides:
-#   IMGNB_TIMEOUT   wall-clock seconds before the run is killed (default 600)
+#   IMGNB_TIMEOUT   wall-clock seconds before the run is killed
+#                   (default: GENIMAGE_TIMEOUT, then 600)
 
 set -uo pipefail
 
 PROMPT="${1:-}"
 OUT="${2:-}"
 SIZE_HINT="${3:-landscape 16:9 aspect ratio, high detail}"
-TIMEOUT_SECS="${IMGNB_TIMEOUT:-600}"
+TIMEOUT_SECS="${IMGNB_TIMEOUT:-${GENIMAGE_TIMEOUT:-600}}"
 
 [ -n "$PROMPT" ] || { echo "IMAGE_FAIL usage: gen-image.sh <prompt> <output.png> [size hint]"; exit 2; }
 [ -n "$OUT" ]    || { echo "IMAGE_FAIL usage: gen-image.sh <prompt> <output.png> [size hint]"; exit 2; }
@@ -51,8 +52,8 @@ ABS_OUT=$(cd "$(dirname "$OUT")" && printf '%s/%s' "$(pwd)" "$(basename "$OUT")"
 _TO=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
 _run() { if [ -n "$_TO" ]; then "$_TO" "$TIMEOUT_SECS" "$@"; else "$@"; fi; }
 
-_LOG=$(mktemp "${TMPDIR:-/tmp}/imgnb-XXXXXX.log")
-_MARK=$(mktemp "${TMPDIR:-/tmp}/imgnb-mark-XXXXXX")   # mtime fence for the fallback search
+_LOG=$(mktemp "${TMPDIR:-/tmp}/genimage-nb-XXXXXX.log")
+_MARK=$(mktemp "${TMPDIR:-/tmp}/genimage-nb-mark-XXXXXX")   # mtime fence for the fallback search
 
 _PROMPT="Use your generate_image tool to generate exactly ONE image and nothing else.
 Image description: ${PROMPT}
@@ -65,10 +66,11 @@ When done, print the final absolute saved path on its own line prefixed exactly 
 _run agy -p "$_PROMPT" < /dev/null > "$_LOG" 2>&1
 RC=$?
 
+# On failure: tail to stderr, keep the full log on disk, IMAGE_FAIL names it.
 if [ "$RC" = "124" ]; then
-  echo "IMAGE_FAIL agy stalled past ${TIMEOUT_SECS}s — re-run or simplify the prompt (check $AGY_HOME/log/)"
   tail -5 "$_LOG" | sed 's/^/  agy| /' >&2
-  rm -f "$_LOG" "$_MARK"; exit 124
+  echo "IMAGE_FAIL agy stalled past ${TIMEOUT_SECS}s — re-run or simplify the prompt (full log: $_LOG)"
+  rm -f "$_MARK"; exit 124
 fi
 
 # --- resolve the produced file ------------------------------------------------
@@ -87,9 +89,9 @@ else
 fi
 
 if [ -z "$SRC" ] || [ ! -f "$SRC" ]; then
-  echo "IMAGE_FAIL no image produced — last agy output below:"
   tail -8 "$_LOG" | sed 's/^/  agy| /' >&2
-  rm -f "$_LOG" "$_MARK"; exit 5
+  echo "IMAGE_FAIL no image produced (full log: $_LOG)"
+  rm -f "$_MARK"; exit 5
 fi
 
 [ "$SRC" != "$ABS_OUT" ] && cp -f "$SRC" "$ABS_OUT"

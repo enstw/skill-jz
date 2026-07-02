@@ -13,14 +13,15 @@
 # ChatGPT-subscription auth, so no OPENAI_API_KEY is required.
 #
 # Env overrides:
-#   IMG2_TIMEOUT   wall-clock seconds before the run is killed (default 600)
+#   IMG2_TIMEOUT   wall-clock seconds before the run is killed
+#                  (default: GENIMAGE_TIMEOUT, then 600)
 
 set -uo pipefail
 
 PROMPT="${1:-}"
 OUT="${2:-}"
 SIZE_HINT="${3:-landscape 16:9 aspect ratio, high detail}"
-TIMEOUT_SECS="${IMG2_TIMEOUT:-600}"
+TIMEOUT_SECS="${IMG2_TIMEOUT:-${GENIMAGE_TIMEOUT:-600}}"
 
 [ -n "$PROMPT" ] || { echo "IMAGE_FAIL usage: gen-image.sh <prompt> <output.png> [size hint]"; exit 2; }
 [ -n "$OUT" ]    || { echo "IMAGE_FAIL usage: gen-image.sh <prompt> <output.png> [size hint]"; exit 2; }
@@ -53,10 +54,11 @@ When done, print the final saved path on its own line prefixed exactly with 'IMA
 _run codex exec -s workspace-write --skip-git-repo-check "$_PROMPT" < /dev/null > "$_LOG" 2>&1
 RC=$?
 
+# On failure: tail to stderr, keep the full log on disk, IMAGE_FAIL names it.
 if [ "$RC" = "124" ]; then
-  echo "IMAGE_FAIL codex stalled past ${TIMEOUT_SECS}s — re-run or simplify the prompt (check ~/.codex/logs/)"
   tail -5 "$_LOG" | sed 's/^/  codex| /' >&2
-  rm -f "$_LOG" "$_MARK"; exit 124
+  echo "IMAGE_FAIL codex stalled past ${TIMEOUT_SECS}s — re-run or simplify the prompt (full log: $_LOG)"
+  rm -f "$_MARK"; exit 124
 fi
 
 # --- resolve the produced file ----------------------------------------------
@@ -70,9 +72,9 @@ elif [ -d "$HOME/.codex/generated_images" ]; then
 fi
 
 if [ -z "$SRC" ] || [ ! -f "$SRC" ]; then
-  echo "IMAGE_FAIL no image produced — last codex output below:"
   tail -8 "$_LOG" | sed 's/^/  codex| /' >&2
-  rm -f "$_LOG" "$_MARK"; exit 5
+  echo "IMAGE_FAIL no image produced (full log: $_LOG)"
+  rm -f "$_MARK"; exit 5
 fi
 
 [ "$SRC" != "$OUT" ] && cp -f "$SRC" "$OUT"

@@ -16,7 +16,7 @@ description: >
 # /genimage-canvas — one hand-drawn image via Claude canvas-design
 
 Produces one bitmap by **drawing it**, not generating it. The wrapper script
-`render.sh` shells out to `claude -p`, asks Claude Code's stock
+`gen-image.sh` shells out to `claude -p`, asks Claude Code's stock
 **canvas-design** skill to author a fixed-size HTML/CSS/SVG composition, saves
 that editable `.html` beside the output, then rasterizes it through the
 **browser-screenshot** skill.
@@ -37,7 +37,7 @@ All three share the parseable `IMAGE_OK` / `IMAGE_FAIL` contract, so
 1. `/genimage-canvas <description>` — design + draw, save to
    `./generated-images/<slug>.png` (source kept beside it as `<slug>.html`)
 1. `/genimage-canvas <description> --out <path.png>` — explicit output path
-1. Re-render after an edit: tweak the `.html`, re-run `render.sh` — same
+1. Re-render after an edit: tweak the `.html`, re-run `gen-image.sh` — same
    image path, deterministic.
 
 ## Step 1: Pre-flight
@@ -50,12 +50,12 @@ command -v claude >/dev/null || echo "CLAUDE_MISSING"
   echo "BROWSER_SCREENSHOT_MISSING"
 ```
 
-`render.sh` checks these itself and emits `IMAGE_FAIL`, so this probe is
+`gen-image.sh` checks these itself and emits `IMAGE_FAIL`, so this probe is
 optional.
 
 1. `CLAUDE_MISSING` → stop: "Claude Code CLI not found — install Claude Code."
 1. `CANVAS_DESIGN_MISSING` → **stop**: "the canvas-design skill is required
-   because `render.sh` asks Claude to use its stock design skill."
+   because `gen-image.sh` asks Claude to use its stock design skill."
 1. `BROWSER_SCREENSHOT_MISSING` → **stop**: "the browser-screenshot skill is
    required because it rasterizes the HTML."
 
@@ -63,7 +63,9 @@ Useful env overrides:
 
 - `GENCANVAS_CLAUDE_BIN` — Claude Code binary path.
 - `GENCANVAS_SHOT` — explicit `browser-screenshot/scripts/shot.sh` path.
-- `GENCANVAS_TIMEOUT` — authoring timeout in seconds, default `600`.
+- `GENCANVAS_TIMEOUT` — authoring timeout in seconds; falls back to the
+  family-wide `GENIMAGE_TIMEOUT` (all three genimage primitives honor it),
+  then `600`.
 
 ## Step 2: Resolve inputs
 
@@ -73,8 +75,11 @@ Useful env overrides:
 1. **Output path** — `--out <path.png>` if given, else
    `./generated-images/<slug>.png`. The wrapper writes the editable source
    beside it as `<slug>.html`.
-1. **Size** — third arg to `render.sh`, default `1920x1080`. Use exact pixel
-   dimensions when a deck, card, or social image workflow requires them.
+1. **Size** — third arg to `gen-image.sh`, default `1920x1080`. Pass exact
+   pixel dimensions when a deck, card, or social image workflow requires
+   them. The arg is hint-tolerant for sibling interchangeability: the first
+   `WxH` token in it wins, and a freeform hint with none (e.g. "landscape
+   16:9, high detail") falls back to `1920x1080`.
 
 For CJK or house fonts, include that in the brief. The Claude subprocess writes
 markup; exact text is the reason to use this primitive. Fonts resolve without
@@ -89,7 +94,7 @@ HTML — copy it there yourself and name it in the brief.
 One call. Let the Bash call run up to ~10 minutes.
 
 ```bash
-<path-to-skill>/render.sh \
+<path-to-skill>/gen-image.sh \
   "<DESCRIPTION>" \
   "generated-images/<slug>.png" \
   "1920x1080"
@@ -109,13 +114,13 @@ of the canvas-design method, keep it with the source.
 To re-render after manual edits, pass the HTML source as the first argument:
 
 ```bash
-<path-to-skill>/render.sh \
+<path-to-skill>/gen-image.sh \
   "generated-images/<slug>.html" \
   "generated-images/<slug>.png" \
   "1920x1080"
 ```
 
-In this mode `render.sh` skips Claude and only runs browser-screenshot.
+In this mode `gen-image.sh` skips Claude and only runs browser-screenshot.
 
 ## Step 4: Verify and show
 

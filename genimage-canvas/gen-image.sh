@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
-# render.sh — draw ONE designed image by asking Claude Code's stock
+# gen-image.sh — draw ONE designed image by asking Claude Code's stock
 # canvas-design skill to author an HTML composition, then rasterizing it via
 # browser-screenshot.
 #
-# Usage:   render.sh "<brief | src.html>" "<output_path.png>" ["WxH" (default 1920x1080)]
+# Usage:   gen-image.sh "<brief | src.html>" "<output_path.png>" ["<size hint>"]
 # Success: prints  IMAGE_OK <abs_path>   and exits 0
 # Failure: prints  IMAGE_FAIL <reason>   and exits non-zero (2/3/4/5/124)
 #
-# Same IMAGE_OK/IMAGE_FAIL contract as genimage-img2/gen-image.sh and
-# genimage-nb/gen-image.sh — the third interchangeable per-slide primitive for
-# /deck-image. If the first argument is an existing .html file, the script skips
-# Claude and just re-renders that source.
+# Same name, args, and IMAGE_OK/IMAGE_FAIL contract as genimage-img2 and
+# genimage-nb — the third interchangeable per-slide primitive for /deck-image.
+# Arg 3 tolerates the siblings' freeform size hint: the first WxH token in it
+# wins; no WxH token -> 1920x1080. If the first argument is an existing .html
+# file, the script skips Claude and just re-renders that source.
 #
 # Env overrides:
-#   GENCANVAS_TIMEOUT     wall-clock seconds for the Claude authoring run (default 600)
+#   GENCANVAS_TIMEOUT     wall-clock seconds for the Claude authoring run
+#                         (default: GENIMAGE_TIMEOUT, then 600)
 #   GENCANVAS_CLAUDE_BIN  Claude Code binary (default: claude)
 #   GENCANVAS_SHOT        browser-screenshot shot.sh path override
 
@@ -27,11 +29,15 @@ fail() {
 
 INPUT="${1:-}"
 OUT="${2:-}"
-SIZE="${3:-1920x1080}"
-TIMEOUT_SECS="${GENCANVAS_TIMEOUT:-600}"
+# Arg 3 is hint-tolerant for sibling interchangeability: use its first WxH
+# token; a hint with none ("landscape 16:9, high detail") falls back to
+# 1920x1080, which is 16:9 anyway.
+SIZE=$(printf '%s' "${3:-}" | grep -oE '[0-9]{2,5}x[0-9]{2,5}' | head -1)
+[ -n "$SIZE" ] || SIZE="1920x1080"
+TIMEOUT_SECS="${GENCANVAS_TIMEOUT:-${GENIMAGE_TIMEOUT:-600}}"
 CLAUDE_BIN="${GENCANVAS_CLAUDE_BIN:-${CLAUDE_BIN:-claude}}"
 
-[ -n "$INPUT" ] && [ -n "$OUT" ] || fail 2 'usage: render.sh "<brief | src.html>" <output.png> [WxH]'
+[ -n "$INPUT" ] && [ -n "$OUT" ] || fail 2 'usage: gen-image.sh "<brief | src.html>" <output.png> [size hint]'
 
 mkdir -p "$(dirname "$OUT")" 2>/dev/null || true
 OUT_DIR="$(cd "$(dirname "$OUT")" 2>/dev/null && pwd)" || fail 2 "cannot create output directory: $(dirname "$OUT")"
