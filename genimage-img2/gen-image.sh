@@ -6,7 +6,7 @@
 # Success: prints  IMAGE_OK <abs_path>   and exits 0
 # Failure: prints  IMAGE_FAIL <reason>   and exits non-zero (2/3/4/5/124)
 #
-# This is the single-image primitive shared by the /img2 and /deck-image skills.
+# This is the single-image primitive shared by the /genimage-img2 and /deck-image skills.
 # It mirrors how the gstack /codex skill drives codex: a binary+auth gate, a
 # gtimeout/timeout wrapper, `codex exec` with stdin closed, and a parseable
 # stdout contract (IMAGE_PATH:). Generation runs server-side under codex's
@@ -37,8 +37,8 @@ mkdir -p "$(dirname "$OUT")" 2>/dev/null || true
 _TO=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
 _run() { if [ -n "$_TO" ]; then "$_TO" "$TIMEOUT_SECS" "$@"; else "$@"; fi; }
 
-_LOG=$(mktemp "${TMPDIR:-/tmp}/img2-XXXXXX.log")
-_MARK=$(mktemp "${TMPDIR:-/tmp}/img2-mark-XXXXXX")   # mtime fence for the fallback search
+_LOG=$(mktemp "${TMPDIR:-/tmp}/genimage-img2-XXXXXX.log")
+_MARK=$(mktemp "${TMPDIR:-/tmp}/genimage-img2-mark-XXXXXX")   # mtime fence for the fallback search
 
 _PROMPT="Use your built-in generateimage (imagegen) skill to generate exactly ONE image and nothing else.
 Image description: ${PROMPT}

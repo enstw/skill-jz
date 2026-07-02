@@ -7,7 +7,7 @@
 # Success: prints  IMAGE_OK <abs_path>   and exits 0
 # Failure: prints  IMAGE_FAIL <reason>   and exits non-zero (2/3/4/5/124)
 #
-# Same CLI contract as img2/gen-image.sh — the per-slide primitive that
+# Same CLI contract as genimage-img2/gen-image.sh — the per-slide primitive that
 # /deck-image loops over; the two scripts are drop-in interchangeable.
 #
 # Empirical facts this script is built on (agy 1.0.13, probed 2026-07-02):
@@ -38,7 +38,7 @@ TIMEOUT_SECS="${IMGNB_TIMEOUT:-600}"
 
 AGY_HOME="$HOME/.gemini/antigravity-cli"
 
-# --- pre-flight gate (binary + auth), same shape as img2 ---------------------
+# --- pre-flight gate (binary + auth), same shape as genimage-img2 ---------------------
 command -v agy >/dev/null 2>&1 || {
   echo "IMAGE_FAIL agy CLI not found — install the Antigravity CLI first"; exit 3; }
 [ -f "$AGY_HOME/antigravity-oauth-token" ] || {

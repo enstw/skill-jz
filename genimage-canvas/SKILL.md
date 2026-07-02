@@ -1,5 +1,5 @@
 ---
-name: img-canvas
+name: genimage-canvas
 description: >
   Draw a single designed image (poster, cover, slide, hero, art piece) by
   authoring an HTML composition following the canvas-design skill's
@@ -8,13 +8,13 @@ description: >
   method — pre-flight STOPS if missing) and browser-screenshot (the
   rasterizer — render.sh fails clearly if missing). Exact on-image text by
   construction — no AI-image garbling, ideal for CJK — no external CLI, no
-  cost. Same IMAGE_OK/IMAGE_FAIL contract as /img2 and /img-nb; this is the
+  cost. Same IMAGE_OK/IMAGE_FAIL contract as /genimage-img2 and /genimage-nb; this is the
   drawn-renderer primitive /deck-image calls per slide. Use when asked to
-  "draw/design an image by hand", "img-canvas", or when exact text matters
+  "draw/design an image by hand", "genimage-canvas" (old name "img-canvas"), or when exact text matters
   more than photorealism.
 ---
 
-# /img-canvas — one hand-drawn image via canvas-design + browser-screenshot
+# /genimage-canvas — one hand-drawn image via canvas-design + browser-screenshot
 
 Produces one bitmap by **drawing it**, not generating it: the agent authors a
 fixed-size HTML composition per the **canvas-design** skill's method (design
@@ -25,19 +25,19 @@ Division of labor — this skill is deliberately thin:
 
 ```
 canvas-design        HOW to design (philosophy → composition)   ← authoring dependency
-img-canvas           the workflow + the IMAGE_OK contract       ← THIS skill
+genimage-canvas           the workflow + the IMAGE_OK contract       ← THIS skill
 browser-screenshot   headless Chrome rasterizer (shot.sh)       ← rendering dependency
 ```
 
-Versus the sibling primitives: /img2 and /img-nb *generate* (photorealism,
-illustration); /img-canvas *draws* (designed layouts, typography, exact
+Versus the sibling primitives: /genimage-img2 and /genimage-nb *generate* (photorealism,
+illustration); /genimage-canvas *draws* (designed layouts, typography, exact
 text). All three share the contract, so /deck-image can mix them per slide.
 
 ## Usage
 
-1. `/img-canvas <description>` — design + draw, save to
+1. `/genimage-canvas <description>` — design + draw, save to
    `./generated-images/<slug>.png` (source kept beside it as `<slug>.html`)
-1. `/img-canvas <description> --out <path.png>` — explicit output path
+1. `/genimage-canvas <description> --out <path.png>` — explicit output path
 1. Re-render after an edit: tweak the `.html`, re-run `render.sh` — same
    image path, deterministic.
 
@@ -93,10 +93,10 @@ correctly:
 ## Step 3: Rasterize
 
 ```bash
-~/.claude/skills/img-canvas/render.sh "<slug>.html" "generated-images/<slug>.png" "1920x1080"
+~/.claude/skills/genimage-canvas/render.sh "<slug>.html" "generated-images/<slug>.png" "1920x1080"
 ```
 
-The contract (same as /img2, /img-nb):
+The contract (same as /genimage-img2, /genimage-nb):
 
 - `IMAGE_OK <abs_path>` on stdout + exit 0 → the saved PNG.
 - `IMAGE_FAIL <reason>` + non-zero exit → relay the reason.
@@ -126,5 +126,5 @@ The contract (same as /img2, /img-nb):
    (`hero-v2.png` + `hero-v2.html`).
 1. Text on the image is set in markup — it must be **exact**, in the language
    requested; that exactness is this primitive's whole advantage.
-1. Don't hand-draw what the user asked to AI-generate (that's /img2 or
-   /img-nb), and vice versa.
+1. Don't hand-draw what the user asked to AI-generate (that's /genimage-img2 or
+   /genimage-nb), and vice versa.

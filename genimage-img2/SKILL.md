@@ -1,17 +1,17 @@
 ---
-name: img2
+name: genimage-img2
 description: >
   Generate a single image with OpenAI gpt-image-2, driven through the Codex
   CLI's built-in imagegen skill. PRE-CONDITION: the `codex` CLI must be
   installed and authenticated (`codex login`; a ChatGPT subscription is enough
   — no OPENAI_API_KEY needed). Use when asked to "generate an image", "make an
-  illustration/hero/mockup/slide image", "gpt-image-2", or "img2". This is the
+  illustration/hero/mockup/slide image", "gpt-image-2", or "genimage-img2" (old name "img2"). This is the
   single-image primitive that /deck-image calls once per slide (siblings, same
-  contract: /img-nb nano banana, /img-canvas hand-drawn). Not for
+  contract: /genimage-nb nano banana, /genimage-canvas hand-drawn). Not for
   SVG/vector/code-native graphics — build those directly instead.
 ---
 
-# /img2 — one gpt-image-2 image via Codex
+# /genimage-img2 — one gpt-image-2 image via Codex
 
 Produces one bitmap with **gpt-image-2** (OpenAI's current image model) by
 shelling out to `codex exec`. Codex's built-in `imagegen` tool does the
@@ -22,15 +22,15 @@ The whole call is wrapped in `gen-image.sh` (in this skill folder), which is
 the single source of truth for the codex invocation. It mirrors how the gstack
 `/codex` skill drives codex: a binary + auth gate, a `gtimeout`/`timeout`
 wrapper, `codex exec` with stdin closed, and a parseable `IMAGE_PATH:` stdout
-contract. `/deck-image` reuses this exact script; `img-nb/gen-image.sh` (nano
-banana via agy) and `img-canvas/render.sh` (hand-drawn compositions) honor the
+contract. `/deck-image` reuses this exact script; `genimage-nb/gen-image.sh` (nano
+banana via agy) and `genimage-canvas/render.sh` (hand-drawn compositions) honor the
 same contract.
 
 ## Usage
 
-1. `/img2 <description>` — generate, save to `./generated-images/<slug>.png`
-1. `/img2 <description> --out <path.png>` — generate, save to an explicit path
-1. `/img2 edit <path/to/image> <instructions>` — edit an existing image
+1. `/genimage-img2 <description>` — generate, save to `./generated-images/<slug>.png`
+1. `/genimage-img2 <description> --out <path.png>` — generate, save to an explicit path
+1. `/genimage-img2 edit <path/to/image> <instructions>` — edit an existing image
 
 ## Step 1: Pre-flight (the pre-condition gate)
 
@@ -67,7 +67,7 @@ One call. Allow up to ~10 minutes (rendering is typically 1–3 min). Use
 `timeout: 600000` on the Bash tool call.
 
 ```bash
-~/.claude/skills/img2/gen-image.sh \
+~/.claude/skills/genimage-img2/gen-image.sh \
   "<DESCRIPTION>" \
   "generated-images/<slug>.png" \
   "landscape 16:9 aspect ratio, high detail"

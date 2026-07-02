@@ -1,18 +1,18 @@
 ---
-name: img-nb
+name: genimage-nb
 description: >
   Generate a single image with nano banana (Gemini's image model), driven
   through the agy (Antigravity) CLI's built-in generate_image tool.
   PRE-CONDITION: the `agy` CLI must be installed and authenticated (run agy
   once interactively and log in — billed to the Gemini side, no API key
   needed). Use when asked to "generate an image with nano banana / gemini /
-  agy", or "img-nb". Same CLI contract as /img2 (gpt-image-2) — this is the
+  agy", or "genimage-nb" (old name "img-nb"). Same CLI contract as /genimage-img2 (gpt-image-2) — this is the
   interchangeable per-slide primitive that /deck-image can call once per
   slide. Not for SVG/vector/code-native graphics — build those directly
   instead.
 ---
 
-# /img-nb — one nano-banana image via agy
+# /genimage-nb — one nano-banana image via agy
 
 Produces one bitmap with **nano banana** (Gemini's image model) by shelling
 out to `agy -p` (Antigravity CLI print mode). The agent's `generate_image`
@@ -21,14 +21,14 @@ is required.
 
 The whole call is wrapped in `gen-image.sh` (in this skill folder), which is
 the single source of truth for the agy invocation. It mirrors
-`img2/gen-image.sh` — a binary + auth gate, a `gtimeout`/`timeout` wrapper,
-stdout redirected to a log file, and the same parseable contract — so /img2
-and /img-nb are drop-in interchangeable renderers for **/deck-image**.
+`genimage-img2/gen-image.sh` — a binary + auth gate, a `gtimeout`/`timeout` wrapper,
+stdout redirected to a log file, and the same parseable contract — so /genimage-img2
+and /genimage-nb are drop-in interchangeable renderers for **/deck-image**.
 
 ## Usage
 
-1. `/img-nb <description>` — generate, save to `./generated-images/<slug>.png`
-1. `/img-nb <description> --out <path.png>` — generate, save to an explicit path
+1. `/genimage-nb <description>` — generate, save to `./generated-images/<slug>.png`
+1. `/genimage-nb <description> --out <path.png>` — generate, save to an explicit path
 
 ## Step 1: Pre-flight (the pre-condition gate)
 
@@ -63,13 +63,13 @@ One call. Rendering is fast (~30–60 s in probes); still allow up to ~10
 minutes on the Bash call (`timeout: 600000`).
 
 ```bash
-~/.claude/skills/img-nb/gen-image.sh \
+~/.claude/skills/genimage-nb/gen-image.sh \
   "<DESCRIPTION>" \
   "generated-images/<slug>.png" \
   "landscape 16:9 aspect ratio, high detail"
 ```
 
-The script's contract (same as /img2):
+The script's contract (same as /genimage-img2):
 
 - `IMAGE_OK <abs_path>` on stdout + exit 0 → parse the path, it's the saved file.
 - `IMAGE_FAIL <reason>` + non-zero exit → relay the reason to the user.

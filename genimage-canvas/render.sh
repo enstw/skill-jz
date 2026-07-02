@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # render.sh — rasterize ONE hand-authored HTML composition to a PNG via the
-# browser-screenshot skill. This is the mechanical half of /img-canvas; the
+# browser-screenshot skill. This is the mechanical half of /genimage-canvas; the
 # creative half is the agent authoring the HTML following the canvas-design
 # skill's design-philosophy method (see SKILL.md).
 #
@@ -8,7 +8,7 @@
 # Success: prints  IMAGE_OK <abs_path>   and exits 0
 # Failure: prints  IMAGE_FAIL <reason>   and exits non-zero (2/3/5)
 #
-# Same IMAGE_OK/IMAGE_FAIL contract as img2/gen-image.sh and img-nb/gen-image.sh
+# Same IMAGE_OK/IMAGE_FAIL contract as genimage-img2/gen-image.sh and genimage-nb/gen-image.sh
 # — the third interchangeable per-slide primitive for /deck-image. The input
 # differs by nature: a drawn composition starts from an HTML file the agent
 # authored, not from a prompt.
@@ -35,7 +35,7 @@ SHOT="$HOME/.claude/skills/browser-screenshot/scripts/shot.sh"
   echo "IMAGE_FAIL browser-screenshot skill missing — install/link it at ~/.claude/skills/browser-screenshot (its scripts/shot.sh does the rasterizing)"; exit 3; }
 
 [ -f "$HOME/.claude/skills/canvas-design/SKILL.md" ] || \
-  echo "WARN canvas-design skill missing — /img-canvas compositions should follow its design-philosophy method; install: copy skills/canvas-design/ from https://github.com/anthropics/skills into ~/.claude/skills/" >&2
+  echo "WARN canvas-design skill missing — /genimage-canvas compositions should follow its design-philosophy method; install: copy skills/canvas-design/ from https://github.com/anthropics/skills into ~/.claude/skills/" >&2
 
 mkdir -p "$(dirname "$OUT")" 2>/dev/null || true
 

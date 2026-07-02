@@ -6,8 +6,8 @@ description: >
   explicit PUBLIC-OR-PRIVATE decision (private-first when in doubt), git init
   if needed, gh repo create + push, a README.md authored from the folder's
   real contents, the repo description, a README header banner and a 1280×640
-  social-preview card rendered via the image primitives (/img-canvas for
-  typography-exact, /img2 or /img-nb for illustrative), and the
+  social-preview card rendered via the image primitives (/genimage-canvas for
+  typography-exact, /genimage-img2 or /genimage-nb for illustrative), and the
   social-preview upload step (GitHub has no API for it). PRE-CONDITION: `gh`
   installed and authenticated (`gh auth login`). Use when asked to "publish /
   migrate this folder (or repo) to GitHub", "create a GitHub repo for this",
@@ -18,8 +18,8 @@ description: >
 
 Turns a local folder into a GitHub repo that looks intentional: audited
 visibility, an honest README with a banner, a description, and a social
-card. The image work is delegated to the renderer primitives (`/img2`,
-`/img-nb`, `/img-canvas` — same `IMAGE_OK`/`IMAGE_FAIL` contract); this
+card. The image work is delegated to the renderer primitives (`/genimage-img2`,
+`/genimage-nb`, `/genimage-canvas` — same `IMAGE_OK`/`IMAGE_FAIL` contract); this
 skill owns the workflow and the publishing judgment.
 
 ```
@@ -134,10 +134,10 @@ README, and the folder keeps the root clean):
 
 Renderer choice (same rule as image decks):
 
-1. **/img-canvas** when the image is typography-led — repo name + tagline
+1. **/genimage-canvas** when the image is typography-led — repo name + tagline
    with **exact text** (CJK: the ENSFont `@font-face` recipe is in
-   /img-canvas § Author). This is the right default for repo banners.
-1. **/img2** or **/img-nb** for illustrative art; keep in-image text
+   /genimage-canvas § Author). This is the right default for repo banners.
+1. **/genimage-img2** or **/genimage-nb** for illustrative art; keep in-image text
    minimal — AI renderers garble small type.
 1. Keep ONE aesthetic across banner and card (same philosophy / same
    leading prompt sentence) so the repo reads as one identity.
