@@ -13,6 +13,10 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 - `transcribe-pdf/SKILL.md` — transcribe a PDF to Markdown for downstream AI reading. Self-contained: bundles `pdf2md.py` as the cheap default plus a page-combine helper, and falls back to vision transcription when the text layer is unrecoverable. Description-triggered.
 - `codex-image/SKILL.md` — generate or edit bitmap images with OpenAI `gpt-image-2` via the Codex CLI's built-in imagegen skill (`codex exec -s workspace-write`). Pre-condition: `codex` installed and authenticated (`codex login`; ChatGPT-subscription auth, no API key). Saves into the current project; edit mode loads the source image first. Slash `/codex-image`.
 - `browser-screenshot/SKILL.md` — headless screenshot or rendered-DOM dump of any URL or local HTML/SVG file. Bundles `scripts/shot.sh`, hardened against the cold-profile hang (one reused profile + GNU `timeout` hard-kill + `Singleton*` lock cleanup) that makes naive `--headless --screenshot` stall or write nothing. Description-triggered.
+- `img2/SKILL.md` — generate ONE image with gpt-image-2 via the Codex CLI. Bundles `gen-image.sh`: binary+auth gate, timeout wrapper, and the shared renderer contract (`gen-image.sh "<prompt>" <out.png> "<size>"` → `IMAGE_OK <path>` / `IMAGE_FAIL <reason>`). The per-slide primitive /deck-image loops over. Pre-condition: `codex` installed + `codex login`. Slash `/img2`.
+- `img-nb/SKILL.md` — generate ONE image with nano banana (Gemini) via the agy CLI; `gen-image.sh` honors the same contract as img2 (drop-in interchangeable). Encodes agy's probed quirks: scratch-dir cwd (absolute cp target), JPEG artifacts (`sips` → PNG), stdout held open by lingering children (redirect, never pipe). Pre-condition: `agy` installed + logged in. Slash `/img-nb`.
+- `img-canvas/SKILL.md` — draw ONE designed image: author an HTML composition per the canvas-design method, rasterize with `render.sh` (browser-screenshot) — exact on-image text, CJK-safe (ENSFont recipe included). Depends on canvas-design (pre-flight stops if missing) + browser-screenshot (render.sh hard-fails); same IMAGE_OK contract as img2/img-nb. Slash `/img-canvas`.
+- `yt2sub/SKILL.md` — download and transcribe YouTube videos or local audio files (yt-dlp + faster-whisper). Slash `/yt2sub`.
 
 ## Conventions
 
@@ -24,7 +28,7 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 
 ## Layout
 
-- `flush/`, `sync/`, `init-agents/`, `recommend/`, `self-evaluate/`, `robust-web-fetch/`, `transcribe-pdf/`, `codex-image/`, `browser-screenshot/`, ... — one folder per skill.
+- `flush/`, `sync/`, `init-agents/`, `recommend/`, `self-evaluate/`, `robust-web-fetch/`, `transcribe-pdf/`, `codex-image/`, `browser-screenshot/`, `img2/`, `img-nb/`, `img-canvas/`, `yt2sub/`, ... — one folder per skill.
 - `README.md` — outward-facing description and install instructions.
 - `AGENTS.md` — this file (orientation for any agent working on the repo).
 - `TODO.md` — open items.
