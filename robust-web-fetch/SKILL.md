@@ -1,6 +1,6 @@
 ---
 name: robust-web-fetch
-description: Fetch web source material when ordinary curl, wget, or web_fetch is insufficient, including PDFs, HTML pages, text files, rendered pages, archives, and CDN-blocked sources.
+description: Fetch web source material when ordinary curl, wget, or web_fetch is insufficient, including PDFs, HTML pages, text files, rendered pages, archives, CDN-blocked sources, and login-walled subscription content via a user-assisted browser session.
 ---
 
 # Robust Web Fetch
@@ -17,6 +17,8 @@ The bundled script `scripts/fetch.py` escalates through four *independent* strat
 1. **camoufox** — an anti-detect Firefox that passes non-interactive JS challenges (the "Just a moment…" interstitial), then downloads the file with the earned clearance cookies.
 
 The script stops at the first tier that produces a valid file. PDFs are verified by magic bytes, so a challenge page is never silently saved as a `.pdf`.
+
+A fifth, **semi-automated** strategy lives in a separate script for the blocks automation alone cannot pass — login-walled subscription content and interactive CAPTCHAs. See *Tier 5: user-assisted authenticated browser* below.
 
 ## How to use
 
@@ -61,11 +63,39 @@ Past that one prerequisite, there is nothing else to install ahead of time, and 
 >
 > If using Camoufox's virtual-display mode, also check the official virtual display guide: <https://camoufox.com/python/virtual-display/>. Do not install `xvfb` unless using `headless="virtual"`.
 
-## What this does NOT defeat
+## Tier 5: user-assisted authenticated browser (`scripts/assisted.py`)
 
-No local method beats these — the script fails cleanly and says so:
+For blocks the four automated tiers *cannot* beat but a **human with credentials can**: institutional subscription paywalls (publisher content the user's university library licenses), login proxies such as **EZproxy** (`https://<proxy-host>/login?url=<publisher-url>`), and one-off interactive CAPTCHAs. This tier is semi-automated by design — the human does the login once, the agent does everything after.
+
+How it works:
+
+1. `launch` starts a **headed** Chromium-family browser (Chrome/Brave/Chromium/Edge autodetected) with a *dedicated persistent profile* and a CDP debugging port. It never touches the user's normal browser profile.
+2. `open <url>` navigates to the login-wrapped URL. **The human logs in in the visible window.** The session persists in the profile, so later runs usually skip re-login.
+3. The agent reconnects over CDP and drives the *same logged-in session*: `pdflink` scans a tab for PDF-ish links, `save` downloads one file, `merge` downloads a list of chapter PDFs and binds them into one file. Downloads go through the browser context's request API, which **shares the cookie jar** — the human's clearance applies to every request.
+
+```bash
+uv run <path-to-skill>/scripts/assisted.py launch
+uv run <path-to-skill>/scripts/assisted.py open "https://ezproxy.example.edu/login?url=https://www.tandfonline.com/doi/full/10.1080/..."
+# ── human logs in in the visible window ──
+uv run <path-to-skill>/scripts/assisted.py pdflink tandfonline
+uv run <path-to-skill>/scripts/assisted.py save "https://....../doi/pdf/10.1080/..." out.pdf
+uv run <path-to-skill>/scripts/assisted.py merge book.pdf <chapter-url-1> <chapter-url-2> ...
+```
+
+Field notes (verified against a real university EZproxy):
+
+- **EZproxy rewrites hostnames** — `www.tandfonline.com` becomes `www-tandfonline-com.<proxy-host>`. After login, scrape links from the *live page* rather than constructing publisher URLs by hand; the rewritten host must be preserved.
+- **Chaptered ebooks** (Cambridge Core, JSTOR, Oxford Academic) expose one PDF per chapter. Collect every chapter link from the book page (`pdflink`), then `merge`. `save`/`merge` auto-retry with `?acceptTC=true&coverpage=false` for JSTOR-style TOS interstitials.
+- **Check access before scraping**: "Get access" / a price tag / "Your institution does not have access" on the landing page means the library doesn't license that title — no amount of automation helps; fall back to interlibrary loan.
+- **Limits**: a few platforms (e.g. De Gruyter) run bot checks that flag even CDP-driven navigation in a real browser. Leave the tab open and ask the human to click through; once the page passes, the session requests usually work.
+- PDFs are magic-byte verified, same as the automated tiers — an interstitial is never silently saved as a `.pdf`.
+
+## What the automated tiers do NOT defeat
+
+No *fully automated* local method beats these — `fetch.py` fails cleanly and says so:
 
 - **Interactive CAPTCHA** (Turnstile / hCaptcha that needs a human action).
 - **IP-reputation blocks** (your IP is flagged regardless of fingerprint).
+- **Login-walled subscription content** (credentials required, not just fingerprints).
 
-The only guaranteed bypass for those is a paid Web Unlocker service (ZenRows, ScrapFly, Bright Data Web Unlocker), or a manual Internet Archive search if the automated snapshot lookup missed.
+For all three, escalate to **tier 5 above** when a human with access is available. Failing that: a paid Web Unlocker service (ZenRows, ScrapFly, Bright Data Web Unlocker), or a manual Internet Archive search if the automated snapshot lookup missed.
