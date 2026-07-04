@@ -6,8 +6,8 @@ description: >
   explicit PUBLIC-OR-PRIVATE decision (private-first when in doubt), git init
   if needed, gh repo create + push, a README.md authored from the folder's
   real contents, the repo description, a README header banner and a 1280×640
-  social-preview card rendered via the image primitives (/genimage-canvas for
-  typography-exact, /genimage-img2 or /genimage-nb for illustrative), and the
+  social-preview card rendered via the genimage primitives in fallback order
+  (/genimage-img2 → /genimage-nb → /genimage-canvas; stop if all fail), and the
   social-preview upload step (GitHub has no API for it). PRE-CONDITION: `gh`
   installed and authenticated (`gh auth login`). Use when asked to "publish /
   migrate this folder (or repo) to GitHub", "create a GitHub repo for this",
@@ -18,9 +18,10 @@ description: >
 
 Turns a local folder into a GitHub repo that looks intentional: audited
 visibility, an honest README with a banner, a description, and a social
-card. The image work is delegated to the renderer primitives (`/genimage-img2`,
-`/genimage-nb`, `/genimage-canvas` — same `IMAGE_OK`/`IMAGE_FAIL` contract); this
-skill owns the workflow and the publishing judgment.
+card. The image work is delegated to the renderer primitives in a fixed
+fallback chain (`/genimage-img2` → `/genimage-nb` → `/genimage-canvas` — same
+`IMAGE_OK`/`IMAGE_FAIL` contract); this skill owns the workflow and the
+publishing judgment.
 
 ```
 audit → visibility decision → git state → README → gh create+push
@@ -36,8 +37,9 @@ gh auth status >/dev/null 2>&1 || echo "GH_AUTH_MISSING"
 
 1. `GH_MISSING` → stop: "install GitHub CLI (`brew install gh`)."
 1. `GH_AUTH_MISSING` → stop: "run `gh auth login` first."
-1. The chosen image renderer gates itself (each primitive's own pre-flight);
-   probe it before Step 5, not before the audit.
+1. Each genimage primitive gates itself (its own pre-flight); a failed
+   pre-flight just advances the fallback chain in Step 5 — probe there,
+   not before the audit.
 
 ## Step 1: The visibility decision (public or private)
 
@@ -132,15 +134,29 @@ README, and the folder keeps the root clean):
 | `.github/banner.png` | wide strip, ~1600×400 | `![<name>](.github/banner.png)` at the top of README |
 | `.github/social-preview.png` | **1280×640 (2:1), < 1 MB** (GitHub min 640×320) | uploaded in Step 6; shown on shares/embeds |
 
-Renderer choice (same rule as image decks):
+Renderer selection is a **fixed fallback chain**, not a per-image judgment
+call. For each artifact, try in this order and move to the next only on
+`IMAGE_FAIL` (or a failed pre-flight):
 
-1. **/genimage-canvas** when the image is typography-led — repo name + tagline
-   with **exact text** (CJK: the ENSFont `@font-face` recipe is in
-   /genimage-canvas § Author). This is the right default for repo banners.
-1. **/genimage-img2** or **/genimage-nb** for illustrative art; keep in-image text
-   minimal — AI renderers garble small type.
+1. **/genimage-img2** (gpt-image-2 via Codex CLI) — first choice.
+1. **/genimage-nb** (nano banana via agy CLI) — second.
+1. **/genimage-canvas** (HTML/CSS composition, rasterized) — last resort;
+   also the one that renders **exact text** reliably, so when it's the
+   fallback that lands, lean on typography (repo name + tagline; CJK: the
+   ENSFont `@font-face` recipe is in /genimage-canvas § Author).
+1. **All three failed → STOP.** Report each primitive's `IMAGE_FAIL` reason
+   and halt the workflow here — no placeholder images, no silently
+   continuing to Step 6. The repo is already pushed (Step 4), so nothing is
+   lost; images can be retried once a renderer is fixed.
+
+Prompting notes regardless of renderer:
+
+1. For the AI renderers (img2, nb), keep in-image text minimal — they
+   garble small type.
 1. Keep ONE aesthetic across banner and card (same philosophy / same
-   leading prompt sentence) so the repo reads as one identity.
+   leading prompt sentence) so the repo reads as one identity — and reuse
+   the same renderer for both artifacts once one succeeds; don't restart
+   the chain per image.
 
 Commit the images (and banner reference) — they are part of the repo.
 
@@ -167,7 +183,8 @@ URL (the card cache can lag a few minutes).
 1. Open the repo page (or screenshot via `/browse`): README renders, banner
    shows, no accidental files.
 1. Report: URL, **visibility + the audit reasoning behind it**, artifacts
-   created, and what remains manual (social-preview upload, license choice
+   created, which genimage renderer landed (and any fallbacks hit along the
+   chain), and what remains manual (social-preview upload, license choice
    if deferred, the flip-to-public checklist if private-first).
 
 ## Important rules
