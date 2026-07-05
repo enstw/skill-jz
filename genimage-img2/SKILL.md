@@ -9,6 +9,7 @@ description: >
   single-image primitive that /deck-image calls once per slide (siblings, same
   contract: /genimage-nb nano banana, /genimage-canvas hand-drawn). Not for
   SVG/vector/code-native graphics — build those directly instead.
+user-invocable: true
 ---
 
 # /genimage-img2 — one gpt-image-2 image via Codex
@@ -22,8 +23,8 @@ The whole call is wrapped in `gen-image.sh` (in this skill folder), which is
 the single source of truth for the codex invocation. It mirrors how the gstack
 `/codex` skill drives codex: a binary + auth gate, a `gtimeout`/`timeout`
 wrapper, `codex exec` with stdin closed, and a parseable `IMAGE_PATH:` stdout
-contract. `/deck-image` reuses this exact script; `genimage-nb/gen-image.sh` (nano
-banana via agy) and `genimage-canvas/render.sh` (hand-drawn compositions) honor the
+contract. Deck workflows reuse this exact script; `genimage-nb/gen-image.sh` (nano
+banana via agy) and `genimage-canvas/gen-image.sh` (hand-drawn compositions) honor the
 same contract.
 
 ## Usage
@@ -67,11 +68,14 @@ One call. Allow up to ~10 minutes (rendering is typically 1–3 min). Use
 `timeout: 600000` on the Bash tool call.
 
 ```bash
-~/.claude/skills/genimage-img2/gen-image.sh \
+<path-to-skill>/gen-image.sh \
   "<DESCRIPTION>" \
   "generated-images/<slug>.png" \
   "landscape 16:9 aspect ratio, high detail"
 ```
+
+Env overrides: `IMG2_TIMEOUT` caps the run in wall-clock seconds (falls back
+to the family-wide `GENIMAGE_TIMEOUT`, then 600).
 
 **Edit mode** — drive codex directly (the script is generate-only):
 

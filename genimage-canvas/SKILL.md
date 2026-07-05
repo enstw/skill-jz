@@ -11,6 +11,7 @@ description: >
   /deck-image calls per slide. Use when asked to "draw/design an image by
   hand", "genimage-canvas" (old name "img-canvas"), or when exact text matters
   more than photorealism.
+user-invocable: true
 ---
 
 # /genimage-canvas — one hand-drawn image via Claude canvas-design
@@ -49,6 +50,11 @@ command -v claude >/dev/null || echo "CLAUDE_MISSING"
   [ -x "$HOME/.codex/skills/browser-screenshot/scripts/shot.sh" ] || \
   echo "BROWSER_SCREENSHOT_MISSING"
 ```
+
+(`gen-image.sh` additionally accepts a sibling checkout — a
+`browser-screenshot/scripts/shot.sh` next to this skill's folder — so a
+`BROWSER_SCREENSHOT_MISSING` probe result can still succeed when the whole
+collection is linked together.)
 
 `gen-image.sh` checks these itself and emits `IMAGE_FAIL`, so this probe is
 optional.

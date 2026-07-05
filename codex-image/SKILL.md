@@ -8,6 +8,7 @@ description: >
   "make an illustration/logo/hero/mockup", "gpt-image-2", "codex image", or
   to edit/restyle an existing image into a new bitmap asset. Not for
   SVG/vector/code-native graphics — build those directly instead.
+user-invocable: true
 ---
 
 # /codex-image — Generate images with gpt-image-2 via Codex
@@ -19,6 +20,11 @@ works without `OPENAI_API_KEY`.
 
 **Pre-condition:** the Codex CLI must be installed and authenticated. Step 1
 verifies this and stops with instructions if not — never skip it.
+
+**Sibling:** `/genimage-img2` wraps the same generate path in a hardened
+script with the parseable `IMAGE_OK`/`IMAGE_FAIL` contract — prefer it for
+scripted or multi-image (deck) workflows. This skill is the conversational
+variant and the one with a documented edit mode.
 
 ## Usage
 

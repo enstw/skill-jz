@@ -10,6 +10,7 @@ description: >
   interchangeable per-slide primitive that /deck-image can call once per
   slide. Not for SVG/vector/code-native graphics — build those directly
   instead.
+user-invocable: true
 ---
 
 # /genimage-nb — one nano-banana image via agy
@@ -63,11 +64,14 @@ One call. Rendering is fast (~30–60 s in probes); still allow up to ~10
 minutes on the Bash call (`timeout: 600000`).
 
 ```bash
-~/.claude/skills/genimage-nb/gen-image.sh \
+<path-to-skill>/gen-image.sh \
   "<DESCRIPTION>" \
   "generated-images/<slug>.png" \
   "landscape 16:9 aspect ratio, high detail"
 ```
+
+Env overrides: `IMGNB_TIMEOUT` caps the run in wall-clock seconds (falls back
+to the family-wide `GENIMAGE_TIMEOUT`, then 600).
 
 The script's contract (same as /genimage-img2):
 
