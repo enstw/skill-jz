@@ -1,6 +1,15 @@
 ---
 name: browser-screenshot
-description: Headless screenshot or rendered-DOM dump of any URL or local HTML/SVG file, hardened against the headless-browser cold-profile hang. Use when asked to screenshot a page, capture a rendered local file, grab a thumbnail for visual QA, or dump a page's rendered DOM — and especially when a naive headless Chrome/Brave command hangs, writes an empty file, or must run unattended in a script.
+description: >-
+  Headless screenshot or rendered-DOM dump of any URL or local HTML/SVG file.
+  Use whenever a task needs to SEE or read a rendered page: screenshot a page,
+  preview/visual-QA an HTML/CSS/SVG file you just wrote, grab a thumbnail, or
+  dump a page's rendered DOM or computed values. Do not hand-roll a `--headless
+  --screenshot` one-liner or a puppeteer/playwright capture script — Chrome and
+  Brave 149+ removed the one-shot capture flags (they render but write
+  NOTHING, silently), and the bundled shot.sh already drives the DevTools
+  Protocol with cold-profile, wedged-browser, stale-lock, and concurrency
+  hardening. One command, zero setup.
 ---
 
 # Browser Screenshot

@@ -1,6 +1,15 @@
 ---
 name: yt2sub
-description: Download and transcribe YouTube videos or local audio files. Uses yt-dlp and faster-whisper.
+description: >-
+  Download and transcribe YouTube videos or local audio/video files (yt-dlp +
+  faster-whisper). Use whenever a task needs spoken content as text:
+  "transcribe this video/audio", "summarize this YouTube link", "get the
+  subtitles/captions", "what does this talk/podcast/interview say", or quoting
+  and citing speech. Do not hand-roll a yt-dlp + whisper pipeline or reach for
+  a transcription API — the bundled script already handles YouTube's JS
+  challenges, 16 kHz mono conversion, local Whisper model selection
+  (WHISPER_MODEL), and zero-setup provisioning via uv. Free, local, one
+  command.
 user-invocable: true
 allowed-tools:
   - Bash

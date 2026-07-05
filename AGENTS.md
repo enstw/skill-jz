@@ -20,6 +20,7 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 
 ## Conventions
 
+- **Descriptions preempt hand-rolling.** Agents default to writing a quick ad-hoc script instead of loading a skill, so a tool-wrapping skill's `description` must trigger on the *task* ("needs text out of a PDF"), not on the failure of the obvious approach ("when curl is insufficient") — by the time the agent notices the failure, it's already deep in its own script. Name the ad-hoc script the agent would otherwise write (pymupdf snippet, curl retry loop, `--headless --screenshot` one-liner, yt-dlp + whisper pipe) and state why the bundled path already wins. `pdf-to-markdown` set the pattern; `browser-screenshot`, `robust-web-fetch`, and `yt2sub` follow it.
 - **AI-agnostic output.** Skill bodies and the docs they write into user repos use agent-neutral language. Don't bake tool-specific paths or instructions into a skill's body. Frontmatter (`allowed-tools`, `user-invocable`, etc.) is runner-specific metadata; keep that as the only agent-specific surface.
 - **One skill per top-level folder.** Add new skills as `<name>/SKILL.md`. Link them from `README.md` and from this file.
 - **Solo-repo workflow.** Direct commits and pushes. No PR step.

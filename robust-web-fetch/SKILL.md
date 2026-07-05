@@ -1,6 +1,15 @@
 ---
 name: robust-web-fetch
-description: Fetch web source material when ordinary curl, wget, or web_fetch is insufficient, including PDFs, HTML pages, text files, rendered pages, archives, CDN-blocked sources, and login-walled subscription content via a user-assisted browser session.
+description: >-
+  Fetch web source material that resists a plain download: PDFs, HTML pages,
+  text files, JS-rendered pages, archived copies, CDN-blocked sources, and
+  login-walled subscription content via a user-assisted browser session. Use
+  at the FIRST 403, empty body, hang, or "Just a moment…" challenge page from
+  curl/wget/web_fetch — do not hand-roll retry loops, spoofed user-agent
+  headers, or a requests/httpx/playwright fetch script; the bundled fetch.py
+  already escalates through browser-TLS impersonation, the Wayback Machine,
+  rendered PDF, and an anti-detect browser, verifies PDF magic bytes, and runs
+  as one uv command with zero setup.
 ---
 
 # Robust Web Fetch
