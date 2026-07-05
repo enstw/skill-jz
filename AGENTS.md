@@ -10,7 +10,7 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 - `recommend/SKILL.md` — pause and surface direction-level recommendations or refactors. Slash `/recommend` plus self-triggers on drift signals.
 - `self-evaluate/SKILL.md` — estimate PDCA loops remaining before the work is finished. Cost-driven, phase-agnostic. Investigates (code/env/smoke/web) before estimating. Slash `/self-evaluate`.
 - `robust-web-fetch/SKILL.md` — fetch web source material when ordinary fetch tools are insufficient: PDFs, HTML, text, rendered pages, archived copies, and CDN-blocked sources. Description-triggered.
-- `transcribe-pdf/SKILL.md` — transcribe a PDF to Markdown for downstream AI reading. Self-contained: bundles `pdf2md.py` as the cheap default plus a page-combine helper, and falls back to vision transcription when the text layer is unrecoverable. Description-triggered.
+- `pdf-to-markdown/SKILL.md` — convert any PDF (born-digital, scanned, or mixed) to Markdown; covers extract/convert/OCR/cite asks and explicitly preempts ad-hoc pymupdf scripts. Self-contained: bundles `pdf2md.py` (tiered pymupdf4llm → raw text → OCR pipeline) as the cheap default plus a page-combine helper, and falls back to vision transcription when the text layer is unrecoverable. Description-triggered. (Renamed from `transcribe-pdf`.)
 - `codex-image/SKILL.md` — generate or edit bitmap images with OpenAI `gpt-image-2` via the Codex CLI's built-in imagegen skill (`codex exec -s workspace-write`). Pre-condition: `codex` installed and authenticated (`codex login`; ChatGPT-subscription auth, no API key). Saves into the current project; edit mode loads the source image first. Slash `/codex-image`.
 - `browser-screenshot/SKILL.md` — headless screenshot or rendered-DOM dump of any URL or local HTML/SVG file. Bundles `scripts/shot.sh`, hardened against the cold-profile hang (one reused profile + GNU `timeout` hard-kill + `Singleton*` lock cleanup) that makes naive `--headless --screenshot` stall or write nothing. Description-triggered.
 - `genimage-img2/SKILL.md` — generate ONE image with gpt-image-2 via the Codex CLI. Bundles `gen-image.sh`: binary+auth gate, timeout wrapper, and the shared renderer contract (`gen-image.sh "<prompt>" <out.png> "<size>"` → `IMAGE_OK <path>` / `IMAGE_FAIL <reason>`). The per-slide primitive /deck-image loops over. Pre-condition: `codex` installed + `codex login`. Slash `/genimage-img2`.
@@ -29,7 +29,7 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 
 ## Layout
 
-- `flush/`, `sync/`, `init-agents/`, `recommend/`, `self-evaluate/`, `robust-web-fetch/`, `transcribe-pdf/`, `codex-image/`, `browser-screenshot/`, `genimage-img2/`, `genimage-nb/`, `genimage-canvas/`, `yt2sub/`, `repo-publish/`, ... — one folder per skill.
+- `flush/`, `sync/`, `init-agents/`, `recommend/`, `self-evaluate/`, `robust-web-fetch/`, `pdf-to-markdown/`, `codex-image/`, `browser-screenshot/`, `genimage-img2/`, `genimage-nb/`, `genimage-canvas/`, `yt2sub/`, `repo-publish/`, ... — one folder per skill.
 - `README.md` — outward-facing description and install instructions.
 - `AGENTS.md` — this file (orientation for any agent working on the repo).
 - `TODO.md` — open items.

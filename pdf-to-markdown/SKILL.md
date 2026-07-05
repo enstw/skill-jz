@@ -1,26 +1,59 @@
 ---
-name: transcribe-pdf
+name: pdf-to-markdown
 description: >
-  Transcribe PDFs to Markdown for downstream AI reading, citation-locator
-  verification, research notes, and reusable reference corpora. Use when a user
-  asks to transcribe, convert, extract, or prepare a PDF for repeated AI lookup.
-  The skill is self-contained: it bundles an offline pdf2md.py converter and a
-  page-combine helper. Prefer the bundled offline converter for PDFs with a text
-  layer; use vision-based transcription only when the text layer is missing or
-  fails quality checks.
+  Convert any PDF to Markdown — born-digital, scanned, or mixed. Use whenever
+  a task needs text out of a PDF: extract text or tables, convert to Markdown,
+  OCR a scanned document, read/summarize/quote/cite a paper or book, or build
+  a transcript for repeated AI lookup. Do not hand-roll pymupdf, pdfplumber,
+  or pdftotext scripts — the bundled offline converter is already a hardened
+  pymupdf pipeline (per-page pymupdf4llm → raw text → OCR fallback) with
+  broken-text-layer detection, CJK support, and printed-page markers, and it
+  runs as one uv command with zero setup. Use vision-based transcription only
+  when the offline converter fails quality checks.
 ---
 
-# transcribe-pdf
+# pdf-to-markdown
 
-## Why Transcribe
+## When to Use
 
-Repeated vision reads of a PDF are expensive: each lookup re-renders pages and
-spends image-processing tokens again. A one-time Markdown transcription lets
-later citation checks and claim lookups use plain text.
+Reach for this skill whenever the real deliverable depends on PDF text:
+extraction, Markdown conversion, OCR, translation prep, summarizing or
+quoting with page-accurate citations, or building a reference transcript
+for repeated lookup.
 
-This skill's job is to produce `workspace/<pdf-stem>.md` once, with stable page
-markers, and to spend vision effort only when the bundled offline path cannot
-produce usable text.
+The one exception: a quick glance at one or two pages of a short PDF to
+answer a throwaway question. Native PDF reading is fine for that and needs
+no transcript.
+
+## Use the Bundled Converter, Not Ad-Hoc Scripts
+
+When a task needs PDF text, the reflex is to write a quick pymupdf /
+pdfplumber / pdftotext snippet. Don't — `scripts/pdf2md.py` is already a
+hardened pymupdf pipeline, and running it is the same one command of
+effort:
+
+- Per-page tier fallback: pymupdf4llm structured Markdown → raw
+  `page.get_text()` → OCR (Apple Vision on macOS, ocrmypdf/tesseract
+  elsewhere). Each page gets the best tier that passes checks.
+- Gibberish detection that catches broken or mojibake text layers an
+  ad-hoc script would silently pass through as "extracted successfully".
+- CJK-aware extraction and OCR language selection (default
+  `zh-Hant,en-US`, configurable via `--langs`).
+- Printed-page-label detection with auto offset, emitting stable page
+  markers for citation.
+
+An ad-hoc script handles only the born-digital happy case and fails
+silently on the rest.
+
+## Why a Transcript
+
+Repeated vision reads of a PDF are expensive: each lookup re-renders pages
+and spends image-processing tokens again. A one-time Markdown transcription
+lets later citation checks and claim lookups use plain text.
+
+This skill's job is to produce one Markdown file per PDF, with stable page
+markers, and to spend vision effort only when the bundled offline path
+cannot produce usable text.
 
 ## Bundled Files
 
@@ -28,13 +61,23 @@ Resolve these paths relative to this `SKILL.md`, not relative to the user's
 project:
 
 - `scripts/pdf2md.py` - self-contained PEP 723 converter run by `uv`.
-- `scripts/combine-workspace-pages.sh` - combines per-page fallback files.
+- `scripts/combine-pages.sh` - combines per-page fallback files.
 - `LICENSE.pdf2md` - MIT license for the bundled converter.
 
 Do not assume any copy of `pdf2md.py` exists in the user's home directory or on
 `PATH`.
 
 ## Output Contract
+
+Choose the output path first:
+
+- Research/corpus workflows, or a project that already has a `workspace/`
+  directory: `workspace/<pdf-stem>.md`.
+- One-off extraction or conversion: `<pdf-stem>.md` next to the source PDF,
+  or wherever the user asked.
+
+The rest of this document writes `workspace/<pdf-stem>.md`; substitute the
+chosen path throughout.
 
 Whichever path produces the transcript:
 
@@ -164,13 +207,13 @@ from the previous page and annotate the inference.
 Combine after all page files are written:
 
 ```sh
-<skill-dir>/scripts/combine-workspace-pages.sh "<pdf-stem>"
+<skill-dir>/scripts/combine-pages.sh "<pdf-stem>" [output-dir]
 ```
 
-The helper expects `workspace/<pdf-stem>/p*.md`, writes
-`workspace/<pdf-stem>.md`, and removes the per-page directory. If the helper is
-unavailable, concatenate sorted `p*.md` files with a blank line between pages
-and then remove the per-page directory.
+The helper expects `<output-dir>/<pdf-stem>/p*.md` (default output-dir:
+`workspace`), writes `<output-dir>/<pdf-stem>.md`, and removes the per-page
+directory. If the helper is unavailable, concatenate sorted `p*.md` files with
+a blank line between pages and then remove the per-page directory.
 
 ## Edge Cases
 

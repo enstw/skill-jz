@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
-# Combine per-page markdown files in workspace/<name>/ into workspace/<name>.md.
-# Usage: scripts/combine-workspace-pages.sh "<name>"
+# Combine per-page markdown files in <dir>/<name>/ into <dir>/<name>.md.
+# Usage: scripts/combine-pages.sh "<name>" [dir]
 # <name> is the PDF stem (without .pdf) or citation key — the same
-# <name> used for workspace/<name>/pNNN.md and the target workspace/<name>.md.
+# <name> used for <dir>/<name>/pNNNN.md and the target <dir>/<name>.md.
+# [dir] defaults to "workspace".
 
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-    echo "usage: $0 <name>" >&2
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+    echo "usage: $0 <name> [dir]" >&2
     exit 2
 fi
 
 name="$1"
-src_dir="workspace/$name"
-out_file="workspace/$name.md"
+dir="${2:-workspace}"
+src_dir="$dir/$name"
+out_file="$dir/$name.md"
 
 if [[ ! -d "$src_dir" ]]; then
     echo "error: $src_dir does not exist" >&2
@@ -27,7 +29,7 @@ if [[ ${#pages[@]} -eq 0 ]]; then
     exit 1
 fi
 
-# Lexical sort works because page files are zero-padded (p001.md, p099.md, ...).
+# Lexical sort works because page files are zero-padded (p0001.md, p0099.md, ...).
 IFS=$'\n' sorted=($(printf '%s\n' "${pages[@]}" | sort))
 unset IFS
 

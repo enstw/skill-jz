@@ -10,7 +10,7 @@ No structural changes are needed. The CLI discovers all skills today:
 npx -y skills add enstw/skill-jz -l   # list without installing
 ```
 
-This clones the repo and reports `Found 8 skills` (flush, init-agents, recommend, robust-web-fetch, self-evaluate, sync, transcribe-pdf, yt2sub). Re-run this command after any change to confirm the repo still parses.
+This clones the repo and reports `Found 8 skills` (flush, init-agents, pdf-to-markdown, recommend, robust-web-fetch, self-evaluate, sync, yt2sub). Re-run this command after any change to confirm the repo still parses.
 
 ## What makes a repo `skills`-compatible
 
@@ -19,7 +19,7 @@ The CLI walks a cloned repo looking for `SKILL.md` files and reads each one's fr
 1. **One skill per top-level folder, each with a `SKILL.md`.** This repo already follows that (`flush/SKILL.md`, `sync/SKILL.md`, …).
 1. **No root `SKILL.md`.** With no root file, the repo is treated as a *multi-skill* collection and every subfolder skill is discovered. A root `SKILL.md` would make the CLI treat the repo as a *single* skill (unless the installer passes `--full-depth`). Keep the root free of `SKILL.md`.
 1. **Required frontmatter: `name` and `description`.** `name` should be lowercase-kebab and match the folder name. `description` is the trigger text an agent matches against, so keep it self-contained (what it does + when to use it).
-1. **Bundle scripts and assets inside the skill folder, referenced by relative path.** The CLI copies/symlinks the *whole folder*, so anything outside it won't ship. `transcribe-pdf/scripts/`, `yt2sub/scripts/`, and `robust-web-fetch/scripts/` already do this correctly.
+1. **Bundle scripts and assets inside the skill folder, referenced by relative path.** The CLI copies/symlinks the *whole folder*, so anything outside it won't ship. `pdf-to-markdown/scripts/`, `yt2sub/scripts/`, and `robust-web-fetch/scripts/` already do this correctly.
 1. **Runner-specific frontmatter is fine.** Fields like `user-invocable` and `allowed-tools` are read by some runners and ignored by others — harmless to leave in.
 1. **Keep consumer artifacts gitignored.** `.claude/`, `.antigravitycli/`, and `.opencode/` are already in `.gitignore`. (`skills-lock.json` is generated on the *consumer* side, not here, so it never appears in this repo.)
 
