@@ -6,7 +6,8 @@
 # Success: prints  IMAGE_OK <abs_path>   and exits 0
 # Failure: prints  IMAGE_FAIL <reason>   and exits non-zero (2/3/4/5/124)
 #
-# This is the single-image primitive shared by the /genimage-img2 and /deck-image skills.
+# This is the single-image primitive behind the /genimage-img2 skill; deck or
+# batch workflows can loop over it directly.
 # It mirrors how the gstack /codex skill drives codex: a binary+auth gate, a
 # gtimeout/timeout wrapper, `codex exec` with stdin closed, and a parseable
 # stdout contract (IMAGE_PATH:). Generation runs server-side under codex's

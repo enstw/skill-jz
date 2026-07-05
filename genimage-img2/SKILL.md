@@ -1,14 +1,15 @@
 ---
 name: genimage-img2
 description: >
-  Generate a single image with OpenAI gpt-image-2, driven through the Codex
-  CLI's built-in imagegen skill. PRE-CONDITION: the `codex` CLI must be
+  Generate or edit a single image with OpenAI gpt-image-2, driven through the
+  Codex CLI's built-in imagegen skill. PRE-CONDITION: the `codex` CLI must be
   installed and authenticated (`codex login`; a ChatGPT subscription is enough
   — no OPENAI_API_KEY needed). Use when asked to "generate an image", "make an
-  illustration/hero/mockup/slide image", "gpt-image-2", or "genimage-img2" (old name "img2"). This is the
-  single-image primitive that /deck-image calls once per slide (siblings, same
-  contract: /genimage-nb nano banana, /genimage-canvas hand-drawn). Not for
-  SVG/vector/code-native graphics — build those directly instead.
+  illustration/logo/hero/mockup/slide image", "gpt-image-2", "codex image", or
+  "genimage-img2" (old name "img2"). Siblings with the same IMAGE_OK/IMAGE_FAIL
+  contract: /genimage-nb (nano banana), /genimage-canvas (hand-drawn) — the
+  three are drop-in interchangeable. Not for SVG/vector/code-native graphics —
+  build those directly instead.
 user-invocable: true
 ---
 

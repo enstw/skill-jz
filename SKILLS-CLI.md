@@ -10,7 +10,7 @@ No structural changes are needed. The CLI discovers all skills today:
 npx -y skills add enstw/skill-jz -l   # list without installing
 ```
 
-This clones the repo and reports `Found 14 skills` (browser-screenshot, codex-image, flush, genimage-canvas, genimage-img2, genimage-nb, init-agents, pdf-to-markdown, recommend, repo-publish, robust-web-fetch, self-evaluate, sync, yt2sub — verified 2026-07-05). Re-run this command after any change to confirm the repo still parses.
+This clones the repo and reports `Found 13 skills` (browser-screenshot, flush, genimage-canvas, genimage-img2, genimage-nb, init-agents, pdf-to-markdown, recommend, repo-publish, robust-web-fetch, self-evaluate, sync, yt2sub — as of 2026-07-05; the CLI reads the pushed GitHub state, so re-verify after pushing). Re-run this command after any change to confirm the repo still parses.
 
 ## What makes a repo `skills`-compatible
 

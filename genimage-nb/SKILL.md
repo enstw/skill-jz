@@ -6,10 +6,10 @@ description: >
   PRE-CONDITION: the `agy` CLI must be installed and authenticated (run agy
   once interactively and log in — billed to the Gemini side, no API key
   needed). Use when asked to "generate an image with nano banana / gemini /
-  agy", or "genimage-nb" (old name "img-nb"). Same CLI contract as /genimage-img2 (gpt-image-2) — this is the
-  interchangeable per-slide primitive that /deck-image can call once per
-  slide. Not for SVG/vector/code-native graphics — build those directly
-  instead.
+  agy", or "genimage-nb" (old name "img-nb"). Same CLI contract as
+  /genimage-img2 (gpt-image-2) and /genimage-canvas (hand-drawn) — the three
+  are drop-in interchangeable. Not for SVG/vector/code-native graphics —
+  build those directly instead.
 user-invocable: true
 ---
 
@@ -24,7 +24,7 @@ The whole call is wrapped in `gen-image.sh` (in this skill folder), which is
 the single source of truth for the agy invocation. It mirrors
 `genimage-img2/gen-image.sh` — a binary + auth gate, a `gtimeout`/`timeout` wrapper,
 stdout redirected to a log file, and the same parseable contract — so /genimage-img2
-and /genimage-nb are drop-in interchangeable renderers for **/deck-image**.
+and /genimage-nb are drop-in interchangeable renderers.
 
 ## Usage
 
@@ -116,8 +116,8 @@ JPEG, and the script converts with `sips` (macOS built-in) after recovery.
    exits — the script therefore redirects to a log file and never pipes.
 1. **Parallel runs:** the absolute per-call target makes concurrent calls safe
    in the normal path; only the last-resort fence search could cross-match
-   overlapping runs. Cap at ~3 concurrent (as /deck-image does) and re-run
-   any slide that looks wrong.
+   overlapping runs. Cap at ~3 concurrent and re-run any image that looks
+   wrong.
 
 ## Important rules
 

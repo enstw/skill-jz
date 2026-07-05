@@ -7,8 +7,8 @@
 # Success: prints  IMAGE_OK <abs_path>   and exits 0
 # Failure: prints  IMAGE_FAIL <reason>   and exits non-zero (2/3/4/5/124)
 #
-# Same CLI contract as genimage-img2/gen-image.sh — the per-slide primitive that
-# /deck-image loops over; the two scripts are drop-in interchangeable.
+# Same CLI contract as genimage-img2/gen-image.sh — the two scripts are
+# drop-in interchangeable.
 #
 # Empirical facts this script is built on (agy 1.0.13, probed 2026-07-02):
 #   - `agy -p` runs the agent non-interactively; generate_image itself needs

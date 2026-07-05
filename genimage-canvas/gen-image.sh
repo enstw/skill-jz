@@ -8,7 +8,7 @@
 # Failure: prints  IMAGE_FAIL <reason>   and exits non-zero (2/3/4/5/124)
 #
 # Same name, args, and IMAGE_OK/IMAGE_FAIL contract as genimage-img2 and
-# genimage-nb — the third interchangeable per-slide primitive for /deck-image.
+# genimage-nb — the third interchangeable single-image primitive.
 # Arg 3 tolerates the siblings' freeform size hint: the first WxH token in it
 # wins; no WxH token -> 1920x1080. If the first argument is an existing .html
 # file, the script skips Claude and just re-renders that source.

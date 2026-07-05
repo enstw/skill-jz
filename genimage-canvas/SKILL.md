@@ -7,8 +7,8 @@ description: >
   browser-screenshot skill. PRE-CONDITION: the `claude` CLI must be installed
   and authenticated, with the stock canvas-design skill available at
   ~/.claude/skills/canvas-design. Same IMAGE_OK/IMAGE_FAIL contract as
-  /genimage-img2 and /genimage-nb; this is the hand-drawn renderer primitive
-  /deck-image calls per slide. Use when asked to "draw/design an image by
+  /genimage-img2 and /genimage-nb — the drop-in interchangeable hand-drawn
+  renderer. Use when asked to "draw/design an image by
   hand", "genimage-canvas" (old name "img-canvas"), or when exact text matters
   more than photorealism.
 user-invocable: true
@@ -30,8 +30,8 @@ genimage-nb       prompt -> agy/nano-banana -> PNG
 genimage-canvas   prompt -> claude/canvas-design -> HTML -> PNG
 ```
 
-All three share the parseable `IMAGE_OK` / `IMAGE_FAIL` contract, so
-`/deck-image` can call them interchangeably.
+All three share the parseable `IMAGE_OK` / `IMAGE_FAIL` contract, so any
+deck or batch workflow can call them interchangeably.
 
 ## Usage
 
