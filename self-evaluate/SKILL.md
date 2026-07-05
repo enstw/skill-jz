@@ -17,7 +17,7 @@ allowed-tools:
   - Bash
   - WebFetch
   - WebSearch
-  - InvokeAgent
+  - Agent
 ---
 
 # /self-evaluate - PDCA loops remaining

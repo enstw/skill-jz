@@ -131,7 +131,7 @@ journal articles.
 Run from the user's project root:
 
 ```sh
-<skill-dir>/scripts/pdf2md.py workspace/<pdf>.pdf workspace/<pdf-stem>.md
+<path-to-skill>/scripts/pdf2md.py workspace/<pdf>.pdf workspace/<pdf-stem>.md
 ```
 
 Useful flags:
@@ -152,7 +152,7 @@ script's shebang runs `uv run --script` and resolves inline PEP 723
 dependencies. If a platform has trouble with the shebang, use the equivalent:
 
 ```sh
-uv run --script <skill-dir>/scripts/pdf2md.py workspace/<pdf>.pdf workspace/<pdf-stem>.md
+uv run --script <path-to-skill>/scripts/pdf2md.py workspace/<pdf>.pdf workspace/<pdf-stem>.md
 ```
 
 ## Quality Check
@@ -207,7 +207,7 @@ from the previous page and annotate the inference.
 Combine after all page files are written:
 
 ```sh
-<skill-dir>/scripts/combine-pages.sh "<pdf-stem>" [output-dir]
+<path-to-skill>/scripts/combine-pages.sh "<pdf-stem>" [output-dir]
 ```
 
 The helper expects `<output-dir>/<pdf-stem>/p*.md` (default output-dir:

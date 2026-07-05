@@ -34,6 +34,8 @@ uv run <path-to-skill>/scripts/fetch.py <URL> <output-path.pdf> --html-fallback
 
 Add `--skip-rendered-pdf` when you specifically need the origin PDF bytes rather than a browser-rendered PDF of the page. The older `--skip-print-pdf` spelling is still accepted as an alias.
 
+Add `--skip-wayback` for JS-rendered SPAs whose archive snapshots capture only the server-side loading shell — the Wayback tier would otherwise "succeed" with a contentless file.
+
 ## Prerequisite: `uv`
 
 The **only** thing that must exist before running this skill is [`uv`](https://docs.astral.sh/uv/) — it provisions a suitable Python, the pip deps, and (indirectly) the browser binary. Before running, check for it and install it only if missing (do not blindly reinstall):
@@ -77,6 +79,7 @@ How it works:
 uv run <path-to-skill>/scripts/assisted.py launch
 uv run <path-to-skill>/scripts/assisted.py open "https://ezproxy.example.edu/login?url=https://www.tandfonline.com/doi/full/10.1080/..."
 # ── human logs in in the visible window ──
+uv run <path-to-skill>/scripts/assisted.py status     # list open tabs — confirms login landed
 uv run <path-to-skill>/scripts/assisted.py pdflink tandfonline
 uv run <path-to-skill>/scripts/assisted.py save "https://....../doi/pdf/10.1080/..." out.pdf
 uv run <path-to-skill>/scripts/assisted.py merge book.pdf <chapter-url-1> <chapter-url-2> ...

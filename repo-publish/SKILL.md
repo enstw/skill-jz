@@ -12,6 +12,7 @@ description: >
   installed and authenticated (`gh auth login`). Use when asked to "publish /
   migrate this folder (or repo) to GitHub", "create a GitHub repo for this",
   "open-source this", or "repo-publish".
+user-invocable: true
 ---
 
 # /repo-publish — folder → complete GitHub presence
@@ -142,8 +143,8 @@ call. For each artifact, try in this order and move to the next only on
 1. **/genimage-nb** (nano banana via agy CLI) — second.
 1. **/genimage-canvas** (HTML/CSS composition, rasterized) — last resort;
    also the one that renders **exact text** reliably, so when it's the
-   fallback that lands, lean on typography (repo name + tagline; CJK: the
-   ENSFont `@font-face` recipe is in /genimage-canvas § Author).
+   fallback that lands, lean on typography (repo name + tagline; CJK and
+   house fonts: see the font guidance in /genimage-canvas § Step 2).
 1. **All three failed → STOP.** Report each primitive's `IMAGE_FAIL` reason
    and halt the workflow here — no placeholder images, no silently
    continuing to Step 6. The repo is already pushed (Step 4), so nothing is
@@ -168,9 +169,9 @@ Commit the images (and banner reference) — they are part of the repo.
    `https://github.com/<owner>/<repo>/settings` → *Social preview* →
    *Upload an image*, file at `.github/social-preview.png`. Say it in the
    report as the one remaining manual step.
-1. **Browser automation (only if asked):** drive the settings page with the
-   connected-browser skills (`/browse` / connect-chrome) using the user's
-   logged-in session.
+1. **Browser automation (only if asked):** drive the settings page with a
+   connected-browser skill, if one is available in the running environment,
+   using the user's logged-in session.
 
 Verification once uploaded: `curl -s https://github.com/<owner>/<repo> |
 grep -o 'og:image[^>]*'` should show a `repository-images.githubusercontent.com`
@@ -180,8 +181,8 @@ URL (the card cache can lag a few minutes).
 
 1. `gh repo view <owner>/<repo>` — description present, visibility as
    decided.
-1. Open the repo page (or screenshot via `/browse`): README renders, banner
-   shows, no accidental files.
+1. Open the repo page (or capture it with the browser-screenshot skill):
+   README renders, banner shows, no accidental files.
 1. Report: URL, **visibility + the audit reasoning behind it**, artifacts
    created, which genimage renderer landed (and any fallbacks hit along the
    chain), and what remains manual (social-preview upload, license choice
