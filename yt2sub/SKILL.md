@@ -22,8 +22,21 @@ The transcription is handled by the `scripts/yt2sub` script bundled with this sk
 
 ```bash
 # General format
-<SKILL_DIR>/scripts/yt2sub <youtube-url|audio-file> [output-dir]
+<path-to-skill>/scripts/yt2sub <youtube-url|audio-file> [output-dir]
 ```
+
+### Dependencies
+
+The script checks these itself and lists anything missing with an install hint;
+there is no venv or other setup step (`uv run` provisions `faster-whisper` in a
+cached ephemeral environment on first use):
+
+- `ffmpeg` and `uv` — always.
+- `yt-dlp` and `node` (for yt-dlp's JS challenge solver) — only when the source
+  is a URL rather than a local file.
+
+The first transcription also downloads the Whisper model (~1.5 GB for
+`large-v3-turbo`); later runs reuse the cache.
 
 ### Model Selection
 By default, the script uses the `large-v3-turbo` model which provides an excellent balance of speed and accuracy. 
@@ -31,13 +44,13 @@ You can switch the model by setting the `WHISPER_MODEL` environment variable bef
 
 ```bash
 # Recommended default (fast and accurate)
-WHISPER_MODEL=large-v3-turbo <SKILL_DIR>/scripts/yt2sub "https://youtube.com/..." ./work/refs
+WHISPER_MODEL=large-v3-turbo <path-to-skill>/scripts/yt2sub "https://youtube.com/..." ./work/refs
 
 # For maximum accuracy (slower)
-WHISPER_MODEL=large-v3 <SKILL_DIR>/scripts/yt2sub "https://youtube.com/..." ./work/refs
+WHISPER_MODEL=large-v3 <path-to-skill>/scripts/yt2sub "https://youtube.com/..." ./work/refs
 
 # For fastest transcription (lower accuracy)
-WHISPER_MODEL=base <SKILL_DIR>/scripts/yt2sub "https://youtube.com/..." ./work/refs
+WHISPER_MODEL=base <path-to-skill>/scripts/yt2sub "https://youtube.com/..." ./work/refs
 ```
 
 ## Post-Processing Workflow

@@ -3,29 +3,6 @@ set -euo pipefail
 
 MODEL="${WHISPER_MODEL:-large-v3-turbo}"
 
-# --- Dependency checks ---
-missing=()
-command -v yt-dlp &>/dev/null  || missing+=("yt-dlp (uv tool install yt-dlp)")
-command -v ffmpeg &>/dev/null   || missing+=("ffmpeg (macOS: brew install ffmpeg / Ubuntu: sudo apt install ffmpeg)")
-command -v uv &>/dev/null       || missing+=("uv (curl -LsSf https://astral.sh/uv/install.sh | sh)")
-
-if [ ${#missing[@]} -gt 0 ]; then
-    echo "ERROR: Missing dependencies:" >&2
-    for dep in "${missing[@]}"; do echo "  - $dep" >&2; done
-    exit 1
-fi
-
-VENV_DIR="$HOME/tools/yt2sub/venv"
-PYTHON_BIN="$VENV_DIR/bin/python"
-
-if [ ! -f "$PYTHON_BIN" ]; then
-    echo "ERROR: Python venv with faster-whisper is missing." >&2
-    echo "Please create it by running:" >&2
-    echo "  uv venv \"$VENV_DIR\"" >&2
-    echo "  uv pip install --python \"$PYTHON_BIN\" faster-whisper" >&2
-    exit 1
-fi
-
 # --- Usage ---
 if [ $# -lt 1 ]; then
     echo "Usage: $0 <youtube-url|audio-file> [output-dir]"
@@ -33,13 +10,30 @@ if [ $# -lt 1 ]; then
 fi
 
 SOURCE="$1"
-TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR"' EXIT
+
+# --- Dependency checks ---
+missing=()
+command -v ffmpeg &>/dev/null   || missing+=("ffmpeg (macOS: brew install ffmpeg / Ubuntu: sudo apt install ffmpeg)")
+command -v uv &>/dev/null       || missing+=("uv (curl -LsSf https://astral.sh/uv/install.sh | sh)")
+if [ ! -f "$SOURCE" ]; then
+    # URL mode also needs yt-dlp, and node for its JS challenge solver (--js-runtimes node)
+    command -v yt-dlp &>/dev/null || missing+=("yt-dlp (uv tool install yt-dlp)")
+    command -v node &>/dev/null   || missing+=("node (required by yt-dlp's JS challenge solver)")
+fi
+
+if [ ${#missing[@]} -gt 0 ]; then
+    echo "ERROR: Missing dependencies:" >&2
+    for dep in "${missing[@]}"; do echo "  - $dep" >&2; done
+    exit 1
+fi
+
+WORKDIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR"' EXIT
 
 # --- Resolve WAV ---
 if [ -f "$SOURCE" ]; then
     BASENAME="$(basename "$SOURCE" | sed 's/\.[^.]*$//')"
-    WAV="$TMPDIR/${BASENAME}.wav"
+    WAV="$WORKDIR/${BASENAME}.wav"
     echo "Converting to 16 kHz mono WAV..."
     ffmpeg -hide_banner -loglevel warning -i "$SOURCE" -ar 16000 -ac 1 "$WAV"
 else
@@ -48,9 +42,9 @@ else
         --js-runtimes node \
         --remote-components ejs:github \
         --postprocessor-args "ffmpeg:-ar 16000 -ac 1" \
-        -o "$TMPDIR/%(title)s.%(ext)s" \
+        -o "$WORKDIR/%(title)s.%(ext)s" \
         "$SOURCE"
-    WAV="$(find "$TMPDIR" -name '*.wav' | head -1)"
+    WAV="$(find "$WORKDIR" -name '*.wav' | head -1)"
     if [ -z "$WAV" ]; then
         echo "Error: no WAV file produced" >&2
         exit 1
@@ -62,9 +56,10 @@ OUTDIR="$(cd "${2:-.}" && pwd)"
 OUTPUT="$OUTDIR/${BASENAME}.txt"
 
 # --- Transcribe ---
+# uv provisions faster-whisper in an ephemeral cached env; no venv to maintain.
 echo "Transcribing..."
 SOURCE_WAV="$WAV" OUTPUT_FILE="$OUTPUT" MODEL_NAME="$MODEL" \
-"$PYTHON_BIN" -c "
+uv run --with faster-whisper python -c "
 import os, sys
 from faster_whisper import WhisperModel
 model = WhisperModel(os.environ['MODEL_NAME'], device='cpu', compute_type='int8')
