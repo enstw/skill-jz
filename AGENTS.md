@@ -32,6 +32,7 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 - `flush/`, `sync/`, `init-agents/`, `recommend/`, `self-evaluate/`, `robust-web-fetch/`, `pdf-to-markdown/`, `codex-image/`, `browser-screenshot/`, `genimage-img2/`, `genimage-nb/`, `genimage-canvas/`, `yt2sub/`, `repo-publish/`, ... — one folder per skill.
 - `README.md` — outward-facing description and install instructions.
 - `AGENTS.md` — this file (orientation for any agent working on the repo).
+- `SKILLS-CLI.md` — how this repo stays compatible with the agent-agnostic `skills` CLI (agentskills.dev); re-verify with `npx -y skills add enstw/skill-jz -l` after structural changes.
 - `TODO.md` — open items.
 
 ## Install

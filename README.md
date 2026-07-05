@@ -47,6 +47,18 @@ To link all skills in this repo, you can ask your agent:
 
 Restart or reload the agent session if the skill list is cached.
 
+### Installing with the `skills` CLI
+
+The repo is also compatible with the agent-agnostic [`skills` CLI](https://agentskills.dev), which vendors a **pinned copy** (updated manually with `npx skills update`) instead of a live symlink:
+
+```bash
+npx -y skills add enstw/skill-jz                      # all skills
+npx -y skills add enstw/skill-jz --skill flush sync   # pick specific ones
+npx -y skills add enstw/skill-jz -g                   # global (user-level) instead of project
+```
+
+See [SKILLS-CLI.md](./SKILLS-CLI.md) for how the compatibility works and the trade-offs between the two install methods.
+
 ## Requirements
 
 Per skill — see each `SKILL.md`. In general:
