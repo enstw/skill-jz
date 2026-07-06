@@ -30,9 +30,12 @@ brittle patches — a defense that adapts to one does not break the others:
                       non-interactive JS challenges, then pulls the file
                       with the earned clearance cookies.
 
-Residual ceiling (no local tier beats this): interactive CAPTCHA
+Residual ceiling (no *unattended* tier beats this): interactive CAPTCHA
 (Turnstile/hCaptcha needing a human action) and IP-reputation blocks. The
-only guaranteed bypass there is a paid Web Unlocker service.
+next step there is Tier 5 (`assisted.py`) — a headed browser where a human
+clears the challenge once and the agent downloads afterward; the all-tiers-
+failed message prints the exact commands. Only if no human is available do
+the paid Web Unlocker services become the fallback.
 """
 
 import argparse
@@ -404,10 +407,22 @@ def main():
     if attempt_antidetect_browser(args.url, args.output, args.html_fallback):
         return
 
-    print("\nAll tiers failed. The remaining gates (interactive CAPTCHA or "
-          "IP-reputation) are not defeatable locally — use a paid Web "
-          "Unlocker (ZenRows/ScrapFly/Bright Data) or try a manual Internet "
-          "Archive search.", file=sys.stderr)
+    assisted = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "assisted.py")
+    print("\nAll automated tiers failed — the block is an interactive CAPTCHA, "
+          "a login/subscription wall, or an IP-reputation gate that no "
+          "unattended tier can pass.\n"
+          "\nNEXT STEP — Tier 5 (user-assisted browser). A human can clear this "
+          "in seconds; the agent downloads afterward over the same session. It "
+          "is fine to ask the user to solve the CAPTCHA / log in:\n"
+          f"  uv run {assisted} launch\n"
+          f"  uv run {assisted} open \"{args.url}\"\n"
+          "      # ↑ user solves the CAPTCHA / logs in once in the visible window\n"
+          f"  uv run {assisted} save \"{args.url}\" \"{args.output}\"\n"
+          "      # (use `pdflink`/`merge` first if the target PDF is behind a link)\n"
+          "\nLast resorts if no human is available: a paid Web Unlocker "
+          "(ZenRows/ScrapFly/Bright Data), or a manual Internet Archive search.",
+          file=sys.stderr)
     sys.exit(1)
 
 
