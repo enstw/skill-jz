@@ -32,18 +32,28 @@ Principle: the repo is durable. Agent-private memory, transcripts, and scratch c
 
 This skill is a handoff, not a cache deletion routine. Do not wipe agent memory, transcripts, or local caches unless the user explicitly asks for that separate cleanup.
 
+**Cost discipline — read this first.** You are invoked at end-of-session, when the context window is already large and every tool call re-sends all of it. Keep the run cheap:
+
+- **Orient in one shot.** Use the single batched command in step 1 instead of many separate git calls.
+- **Never re-read the full `git diff`.** You already know what changed this session — you did the work. `git diff --stat` (filenames + line counts) is enough to jog and confirm. Read a hunk only for a specific file whose change you genuinely can't recall.
+- **Read only the file you will edit.** Don't open every candidate state doc to "have a look" — the step-1 listing tells you which exist; open the one you're writing to (Edit needs a prior Read), not the rest.
+- **Batch git writes.** Stage and commit in one call; then push.
+
 Flow: orient -> decide what matters -> update the repo -> commit/push -> report the handoff.
 
 ## 1. Orient
 
-1. Find the repo root with `git rev-parse --show-toplevel`; if that fails, use the current directory and ask before `git init`.
-1. Check `git status --short` and `git diff --stat`. Treat existing dirty files as possible in-flight work, not as noise to overwrite.
-1. Discover existing state docs before creating new ones: `AGENTS.md`, `CLAUDE.md`, `PROGRESS.md`, `STATUS.md`, `TODO.md`, `NOTES.md`, `README.md`, `docs/`, ADRs, issue trackers, or project-specific equivalents.
-1. Read only the files needed to understand where state belongs.
+Run one batched command to gather everything at once (each sub-command already matches this skill's allow-list, so it stays auto-approved):
+
+```
+git rev-parse --show-toplevel 2>/dev/null; echo '--- status'; git status --short; echo '--- diffstat'; git diff --stat; echo '--- branch'; git branch --show-current; echo '--- remote'; git remote -v; echo '--- docs'; ls -d AGENTS.md CLAUDE.md PROGRESS.md STATUS.md TODO.md NOTES.md README.md docs 2>/dev/null
+```
+
+From that single output you have: repo root (empty => not a repo, ask before `git init`), the dirty/untracked set, what changed and by how much, the current branch, whether a remote exists, and which state docs already exist. Treat dirty files as possible in-flight work, not noise to overwrite. Only if a specific change is unclear from the diffstat, read that one file's hunk.
 
 ## 2. Decide What To Preserve
 
-Use judgment. Preserve what helps someone resume; skip ceremonial edits.
+Use judgment. Preserve what helps someone resume; skip ceremonial edits. Draw the content from what you did this session — not from re-reading the codebase.
 
 Write down project-scoped state such as:
 
@@ -58,7 +68,7 @@ Do not write user-personal or global facts into the repo unless the user explici
 
 ## 3. Update The Right Files
 
-Prefer existing project files over new files. Create a new state file only when there is useful state and no existing place for it.
+Prefer existing project files over new files. Create a new state file only when there is useful state and no existing place for it. Open only the file you're editing.
 
 Common routing:
 
@@ -75,11 +85,9 @@ Keep the handoff concise, dated when useful, and AI-agnostic. Preserve unrelated
 Invoking `/flush` authorizes committing and pushing the state needed for handoff.
 
 1. If the directory is not a git repo, ask before `git init`.
-1. Stage only files that should travel to the next machine. Do not use `git add -A` blindly.
-1. Before staging, inspect dirty files for unrelated work, secrets, generated artifacts, local config, and cache/output directories. Leave unrelated or unsafe files unstaged and mention them in the final report.
+1. Stage only files that should travel to the next machine. Do not use `git add -A` blindly. From the step-1 status you already know which files are unrelated work, secrets, generated artifacts, local config, or cache/output dirs — leave those unstaged and mention them in the final report; do not open them just to inspect.
 1. Do not delete, clean, stash, reset, reformat, or otherwise tidy unrelated files unless the user explicitly asks for that separate cleanup.
-1. If both product changes and handoff docs exist, decide whether one commit or separate commits is clearer.
-1. Use a direct message such as `docs: record handoff state`, `checkpoint: save current project state`, or a project-specific summary.
+1. Stage and commit in one batched call, e.g. `git add <paths> && git commit -m "docs: record handoff state"`. If both product changes and handoff docs exist, decide whether one commit or separate commits is clearer. Use a direct message such as `docs: record handoff state`, `checkpoint: save current project state`, or a project-specific summary.
 1. Push:
    - If a remote exists, run `git push`. If upstream is missing, push with `-u origin <branch>`.
    - If no remote exists, ask before `gh repo create <name> --source=. --push`, including whether it should be private or public.
