@@ -34,7 +34,9 @@ Env:   BROWSER_BIN  BUN_BIN  SHOT_PROFILE  SHOT_PORT
 EOF
 }
 
-# --- discover a headless browser (Brave preferred; Chrome/Chromium fall-backs) ---
+# --- discover a headless browser (Brave preferred; Chrome/Chromium fall-backs;
+#     last resort: the headless-chromium sibling skill provisions a user-space
+#     one — no root, works in containers) ---
 BROWSER="${BROWSER_BIN:-}"
 if [ -z "$BROWSER" ]; then
   for c in \
@@ -42,9 +44,17 @@ if [ -z "$BROWSER" ]; then
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
     "/Applications/Chromium.app/Contents/MacOS/Chromium" \
     "$(command -v brave-browser 2>/dev/null)" \
-    "$(command -v chromium 2>/dev/null)" "$(command -v google-chrome 2>/dev/null)"; do
+    "$(command -v chromium 2>/dev/null)" "$(command -v google-chrome 2>/dev/null)" \
+    "$HOME/.cache/headless-chromium/chrome"; do
     [ -n "$c" ] && [ -x "$c" ] && { BROWSER="$c"; break; }
   done
+fi
+if [ -z "$BROWSER" ]; then
+  PROVISION="$(dirname "$0")/../../headless-chromium/scripts/provision.sh"
+  if [ -f "$PROVISION" ]; then
+    echo "shot: no browser found — provisioning via headless-chromium skill…" >&2
+    eval "$(bash "$PROVISION")" && BROWSER="$BROWSER_BIN"
+  fi
 fi
 [ -n "$BROWSER" ] || { echo "shot: no headless browser found; set BROWSER_BIN" >&2; exit 2; }
 

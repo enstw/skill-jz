@@ -94,12 +94,12 @@ $B js "JSON.stringify(document.body.dataset)"
 | `--size WxH` | `1920x1080` | viewport |
 | `--settle <ms>` | `2500` | wait before capture (lets entrance animations / async render finish) |
 | `--guard <sec>` | auto: `ceil(settle/1000)+8` | OS-level hard kill per CDP call; auto-tracks `--settle` |
-| `BROWSER_BIN` | auto (Brave→Chrome→Chromium) | browser binary |
+| `BROWSER_BIN` | auto (Brave→Chrome→Chromium→headless-chromium wrapper) | browser binary |
 | `BUN_BIN` | auto (`bun` on PATH, else `~/.bun/bin/bun`) | Bun runtime for the CDP client |
 | `SHOT_PROFILE` | `/tmp/browser-shot-profile` | reused profile dir |
 | `SHOT_PORT` | `9333` | DevTools remote-debugging port |
 
-Requirements: a Chromium-family browser, [Bun](https://bun.sh), GNU `timeout` (`brew install coreutils`), `curl`. For `#debug`-style self-checks under this path: `shot.sh --dump 'file:///path/index.html#debug' | grep -oE 'data-[a-z]+="[^"]*"'` (write dataset values synchronously, before `load`, to be safe).
+Requirements: a Chromium-family browser — **auto-provisioned when none exists**: shot.sh calls the sibling **headless-chromium** skill, which downloads a user-space headless shell (no root, container-safe) and hands back a self-contained `BROWSER_BIN` wrapper — plus [Bun](https://bun.sh), GNU `timeout` (`brew install coreutils`), `curl`. For `#debug`-style self-checks under this path: `shot.sh --dump 'file:///path/index.html#debug' | grep -oE 'data-[a-z]+="[^"]*"'` (write dataset values synchronously, before `load`, to be safe).
 
 ## Note for script consumers
 
