@@ -9,7 +9,8 @@ description: >-
   Brave 149+ removed the one-shot capture flags (they render but write NOTHING,
   silently). Routes through the shared gstack browse daemon (`$B`) when
   installed — one persistent Chromium, ~100ms per command; falls back to the
-  bundled shot.sh CDP pipeline when gstack is absent. One command, zero setup.
+  bundled shot.sh CDP pipeline when gstack is absent. Zero setup, zero
+  hand-rolled capture scripts — either route.
 ---
 
 # Browser Screenshot
@@ -35,8 +36,8 @@ The daemon auto-starts on the first `$B` command and **holds page state between 
 
 ```bash
 $B viewport 1920x1080                 # set size explicitly (skip only if you don't care)
-$B goto https://example.com
-$B wait --load                        # or: $B wait --networkidle | $B wait ".selector"
+$B goto https://example.com           # blocks until the page has loaded — no extra wait needed
+$B wait ".selector"                   # only if content renders AFTER load (async paint, animations); or --networkidle
 $B screenshot /tmp/shot.png           # full page by default
 ```
 
