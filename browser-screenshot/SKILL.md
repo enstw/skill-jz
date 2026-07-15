@@ -6,33 +6,79 @@ description: >-
   preview/visual-QA an HTML/CSS/SVG file you just wrote, grab a thumbnail, or
   dump a page's rendered DOM or computed values. Do not hand-roll a `--headless
   --screenshot` one-liner or a puppeteer/playwright capture script — Chrome and
-  Brave 149+ removed the one-shot capture flags (they render but write
-  NOTHING, silently), and the bundled shot.sh already drives the DevTools
-  Protocol with cold-profile, wedged-browser, stale-lock, and concurrency
-  hardening. One command, zero setup.
+  Brave 149+ removed the one-shot capture flags (they render but write NOTHING,
+  silently). Routes through the shared gstack browse daemon (`$B`) when
+  installed — one persistent Chromium, ~100ms per command; falls back to the
+  bundled shot.sh CDP pipeline when gstack is absent. One command, zero setup.
 ---
 
 # Browser Screenshot
 
-Capture a headless screenshot — or dump the rendered DOM — of any URL or local file, reliably and unattended. Generalized from a project capture script that kept hanging; this is the durable, any-project form.
+Capture a headless screenshot — or dump the rendered DOM — of any URL or local file, reliably and unattended.
 
-## Why a skill, not a raw `--headless --screenshot`
+## Route selection (run first)
 
-**The one-shot flags are gone.** Brave/Chrome **149+** removed the legacy headless capture commands — `--headless --screenshot` and `--dump-dom` now render but write nothing (silent empty file, no error). So `scripts/shot.sh` drives a headless instance over the **DevTools Protocol** instead: it launches ONE browser with `--remote-debugging-port` for the whole batch and captures each page with a tiny Bun CDP client (`scripts/cdp-shot.mjs`, `Page.captureScreenshot`). Bun is used only because it ships a native `WebSocket` + `fetch`, so the CDP client needs zero dependencies.
+```bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+B=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
+[ -z "$B" ] && B="$HOME/.claude/skills/gstack/browse/dist/browse"
+[ -x "$B" ] && echo "USE_DAEMON: $B" || echo "USE_FALLBACK"
+```
 
-On top of that it neutralizes the classic flakiness, so capture is deterministic instead of flaky:
+1. `USE_DAEMON` → use the browse daemon (next section). It's the one shared Chromium on the box; don't spin up a second browser beside it.
+1. `USE_FALLBACK` → use the bundled `scripts/shot.sh` (section below). Don't install gstack just for a screenshot — the fallback is fully capable.
 
-1. **Cold profile / slow startup.** It waits on the `/json/version` endpoint with `curl --retry` (no fixed `sleep`), and reuses **one** persistent profile so later runs are warm.
-1. **Wedged browser.** Every CDP call is wrapped in a GNU `timeout`; the browser is reaped on exit by its unique `--remote-debugging-port`, so nothing is left running.
-1. **Stale lock.** A killed run can leave `Singleton{Lock,Socket,Cookie}` in the profile; they're deleted before each launch.
+## Primary path: the gstack browse daemon
 
-Plus three reliability guarantees for unattended use:
+The daemon auto-starts on the first `$B` command and **holds page state between commands** — a capture is a short command sequence, not one mega-invocation:
 
-1. **Retry once.** An empty capture is retried a single time (the browser is up by then), so a transient miss doesn't need a manual re-run.
-1. **Guard auto-scales with `--settle`.** `--guard` defaults to `ceil(settle/1000)+8` s, so raising `--settle` for a heavy page can never let the hard kill fire *before* the capture lands. Pass `--guard` only to override.
-1. **Concurrency lock.** Parallel invocations serialize on a portable atomic `mkdir` lock (macOS has no `flock`) instead of fighting over the one shared profile / debug port; a crashed run's lock self-clears via its recorded PID.
+```bash
+$B viewport 1920x1080                 # set size explicitly (skip only if you don't care)
+$B goto https://example.com
+$B wait --load                        # or: $B wait --networkidle | $B wait ".selector"
+$B screenshot /tmp/shot.png           # full page by default
+```
 
-## How to use
+**Always `Read` the output PNG afterwards** — without that the screenshot is invisible to you and the user.
+
+### shot.sh → daemon mapping
+
+| Old shot.sh form | Daemon equivalent |
+|---|---|
+| `shot.sh <url> --out <path>` | `$B goto <url>` then `$B screenshot <path>` |
+| `--size WxH` | `$B viewport WxH` (add `--scale 2` for retina) |
+| `--settle <ms>` | `$B wait ".selector"` / `--networkidle` / `--load` (preferred, deterministic); for a pure time settle, `sleep 2.5` between commands — state persists |
+| `--dump` | `$B html` (full rendered HTML) or `$B html '#id'`; `$B text` for cleaned text |
+| eval mode (`cdp-shot.mjs … eval`) | `$B js "<expr>"` one-liner, `$B eval <file.js>` for multi-line |
+| batch (`shot.sh a b c`) | repeat goto/screenshot pairs, or pipe a JSON array to `$B chain` |
+
+### Differences to know
+
+1. **Full page by default.** `$B screenshot` captures the whole page; pass `--viewport` for the old viewport-crop behavior, `--selector '.card'` to crop to one element, `--clip x,y,w,h` for a region.
+1. **`file://` is scoped.** `$B goto file://...` only accepts files under `$PWD` or `/tmp` (verified: macOS `$TMPDIR` under `/var/folders/...` is REJECTED — the daemon allows `/private/tmp` + cwd). To render an HTML/SVG file from elsewhere, copy it into `/tmp` first, or use `$B load-html <file>` (same scoping).
+1. **Retina is free.** `$B viewport 480x600 --scale 2` then screenshot → 2× pixel density. Not possible with shot.sh.
+
+### Reading a page's self-check (`#debug`-style)
+
+To read values a page computes for itself (e.g. written to `document.body.dataset.*`):
+
+```bash
+$B goto 'file:///tmp/index.html#debug'
+$B js "JSON.stringify(document.body.dataset)"
+```
+
+`$B js` runs in the live page, so async-set values (e.g. inside `document.fonts.ready.then(...)`) are readable after a `$B wait`. `$B console` shows the page's console output — something the fallback can't reach at all.
+
+### Daemon etiquette
+
+1. **Never `$B stop`, `$B restart`, or `$B disconnect`** — the daemon may hold other work's tabs, cookies, and logged-in sessions.
+1. Don't pass `--headed` or `--proxy`; plain headless default `$B` is exactly right for rendering.
+1. Don't `npm i puppeteer` / ship a second Chromium — route everything through `$B`.
+
+## Fallback path: bundled `scripts/shot.sh` (no gstack)
+
+**Why not a raw `--headless --screenshot`:** Brave/Chrome **149+** removed the one-shot capture flags — they render but write nothing (silent empty file, no error). `shot.sh` drives a headless instance over the DevTools Protocol instead (one browser per batch, tiny Bun CDP client `scripts/cdp-shot.mjs`), with cold-profile, wedged-browser, stale-lock, retry-once, and concurrency-lock hardening built in.
 
 ```bash
 <path-to-skill>/scripts/shot.sh https://example.com                 # -> /tmp/shot-0.png
@@ -41,31 +87,19 @@ Plus three reliability guarantees for unattended use:
 <path-to-skill>/scripts/shot.sh --dump ./index.html                 # rendered DOM to stdout
 ```
 
-Arguments are URLs or local paths (relative paths resolve against `$PWD`; bare paths become `file://`).
-
 | Flag / env | Default | Meaning |
 |---|---|---|
 | `--out <path>` | `/tmp/shot-<n>.png` | output file (multi-input appends `-<n>`) |
 | `--size WxH` | `1920x1080` | viewport |
 | `--settle <ms>` | `2500` | wait before capture (lets entrance animations / async render finish) |
-| `--guard <sec>` | auto: `ceil(settle/1000)+8` | OS-level hard kill per CDP call; auto-tracks `--settle`. Override only to force a value. |
+| `--guard <sec>` | auto: `ceil(settle/1000)+8` | OS-level hard kill per CDP call; auto-tracks `--settle` |
 | `BROWSER_BIN` | auto (Brave→Chrome→Chromium) | browser binary |
 | `BUN_BIN` | auto (`bun` on PATH, else `~/.bun/bin/bun`) | Bun runtime for the CDP client |
 | `SHOT_PROFILE` | `/tmp/browser-shot-profile` | reused profile dir |
 | `SHOT_PORT` | `9333` | DevTools remote-debugging port |
 
-## Reading a page's self-check (`#debug`-style)
+Requirements: a Chromium-family browser, [Bun](https://bun.sh), GNU `timeout` (`brew install coreutils`), `curl`. For `#debug`-style self-checks under this path: `shot.sh --dump 'file:///path/index.html#debug' | grep -oE 'data-[a-z]+="[^"]*"'` (write dataset values synchronously, before `load`, to be safe).
 
-To read values a page computes for itself, have the page write them **synchronously** to `document.body.dataset.*` (before `load`), then:
+## Note for script consumers
 
-```bash
-<path-to-skill>/scripts/shot.sh --dump 'file:///path/index.html#debug' | grep -oE 'data-[a-z]+="[^"]*"'
-```
-
-`--dump` reads the DOM *after* the same `--settle` wait as a screenshot, so values set in an async callback (e.g. `document.fonts.ready.then(...)`) **do** appear — synchronous is still safest, but the async ones are no longer lost. Page `console.log` is not reachable via stderr; if you need a computed value directly, the bundled CDP client also has an `eval` mode (`bun scripts/cdp-shot.mjs <endpoint> eval <url> '<jsExpr>' …`).
-
-## Requirements
-
-- A Chromium-family browser. On macOS without Chrome, Brave works (`/Applications/Brave Browser.app`); set `BROWSER_BIN` otherwise.
-- [Bun](https://bun.sh) for the CDP client (native WebSocket + fetch, no npm deps); set `BUN_BIN` if not on `PATH`.
-- GNU `timeout` (`brew install coreutils` → `gtimeout`) and `curl`.
+`genimage-canvas`'s `gen-image.sh` invokes `scripts/shot.sh` directly, path-to-path — the `scripts/` directory stays shipped and functional regardless of which route agents use. Do not remove it.
