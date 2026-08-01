@@ -1,22 +1,23 @@
 ---
 name: bookworm-e2e
-description: Run or author Bookworm's e2e test suites correctly — which suites need the dev server, the two-stage offline runbook (a genuinely dead server), browser discovery, and the conventions a new suite must follow. Applies to the bookworm repo (github.com/enstw/bookworm) only. Use when running its tests, when a suite fails mysteriously, or when writing a new e2e test there.
+description: Project runbook for the e2e suites of the bookworm repo (github.com/enstw/bookworm) — which suites need the dev server, the two-stage offline runbook, and bookworm-specific conventions. Use when running its tests, when a suite fails mysteriously, or when writing a new e2e test there. The general method (CDP client, suite taxonomy, authoring rules) lives in the browser-e2e skill.
 user-invocable: true
 ---
 
 # Bookworm e2e suites
 
-The scripts in `scripts/` are the source of truth — this file holds only what
-they cannot say: ordering, preconditions, and the dead-server dance.
+The project overlay for enstw/bookworm: only what is bookworm-specific lives
+here. The method — the CDP client API, suite taxonomy, verdict contract,
+service-worker testing rationale — is the `browser-e2e` skill; the scripts
+in `scripts/` are the source of truth.
 
 ## Preconditions
 
-- A Chromium. `scripts/e2e-browser.mjs` resolves `BROWSER_BIN` → installed
-  Brave/Chrome/chromium → playwright's headless shell. Bare box:
-  `pnpm dlx playwright install chromium-headless-shell`.
-- Server-backed suites need `pnpm run dev` running and the token exported:
-  `ADMIN_TOKEN=<value from .dev.vars>`. If 8787 was busy, wrangler silently
-  took 8788 — export `BOOKWORM_URL=http://localhost:8788` to follow it.
+- A Chromium: `scripts/e2e-browser.mjs` resolves `BROWSER_BIN` → installed
+  Brave/Chrome/chromium → playwright's headless shell.
+- Server-backed suites need `pnpm run dev` and `ADMIN_TOKEN=<value from
+  .dev.vars>`. If 8787 was busy, wrangler silently took 8788 — export
+  `BOOKWORM_URL=http://localhost:8788` to follow it.
 - Fresh checkout: `pnpm run db:init:local` first, or every table read 500s.
 
 ## Suite matrix
@@ -32,37 +33,28 @@ they cannot say: ordering, preconditions, and the dead-server dance.
 
 ## The offline runbook (test:offline)
 
-DevTools offline emulation does not reach service workers, so the offline
-stage needs the server actually dead. Never fold this into one command.
+Two invocations, same browser profile — the offline stage needs the server
+genuinely dead (`browser-e2e` explains why emulation cannot substitute):
 
 1. `ADMIN_TOKEN=… node scripts/test-offline-e2e.mjs prime` — publishes the
    test book, verifies the implicit ±5 window, the ⇣ arm/disarm cycle in the
    reader and on the shelf, and eviction. Repeatable: it pins the reader's
    position back to chapter 0 itself.
 2. **Stop the dev server — completely.** Killing the wrangler parent can
-   leave `workerd` alive and still answering; verify with
-   `curl -s -o /dev/null -w "%{http_code}" http://localhost:8787/api/books`
-   and `lsof -ti :8787 | xargs kill` if it still says 200.
-3. `node scripts/test-offline-e2e.mjs offline` — same browser profile, no
-   server: the service worker must serve shell, manifest and chapters.
+   leave `workerd` alive and answering; curl the port and
+   `lsof -ti :8787 | xargs kill` stragglers until it is dead.
+3. `node scripts/test-offline-e2e.mjs offline` — no server: the service
+   worker must serve shell, manifest and chapters; outside the cached window
+   must degrade to the retry UI, not crash.
 4. Restart `pnpm run dev` for whatever runs next.
 
-Both stages print JSON; any `FAIL` marker in it means exit 1.
+## Bookworm-specific conventions
 
-## Authoring a new suite
-
-- Import the CDP client: `import { launch } from "./e2e-cdp.mjs"` →
-  `{ evalJs, send, close, sessionId }`. Browser flags (window size, autoplay)
-  go in `args`; a static server's cleanup goes in `onFail`.
-- Keep `nav` settle times, `waitFor` loops and `finish` in the script — they
-  are suite-specific and belong under review, not hidden in the helper.
-- Poll with `waitFor(expr, pred)`; never a bare fixed sleep for a condition.
-- Click **ids** (`#offlineBtn`), never titles or visible text — those move
-  with the interface language. Book content (chapter titles) is fair game.
-- Assert user-facing strings against both languages, or match the 中文
-  default (`/載入失敗|Failed to load/`).
-- Pick a fresh CDP port (934x) and a `/tmp/bookworm-<suite>-e2e-profile`;
-  `rmSync` the profile at start unless the suite needs carried-over state
-  (offline stage 2 deliberately keeps it).
-- Wire it into `package.json` as `test:<name>`, and into the `test` chain
-  only if it is single-command (the offline two-stage stays manual).
+- CDP ports are 934x, profiles `/tmp/bookworm-<suite>-e2e-profile`; the
+  offline stage-2 deliberately keeps its profile (that IS the test).
+- The chrome is 中文 first: assert user-facing strings against both
+  languages, e.g. `/載入失敗|Failed to load/`.
+- 直排 suites run phone-shaped (`--window-size=430,900`) — a desktop-wide
+  window puts the pager in a typographic regime readers never see.
+- New suites join `package.json` as `test:<name>`; only single-command
+  suites join the `pnpm test` chain (the offline two-stage stays manual).
