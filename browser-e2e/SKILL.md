@@ -109,6 +109,7 @@ Make the prime stage repeatable: reset any server-side state it depends on
 ## Per-project runbook
 
 This skill carries the method. Each project keeps its own thin runbook —
-suite matrix, ports, env contract, quirks — in its CLAUDE.md or a companion
-skill, and points here for the rest. Exemplar: `bookworm-e2e` in this
-collection is exactly that overlay for the bookworm reader.
+suite matrix, ports, env contract, quirks — in its CLAUDE.md or a project
+skill, and points here for the rest. Exemplar: the bookworm reader
+(github.com/enstw/bookworm) ships exactly that overlay in its repo as
+`.claude/skills/e2e`.
