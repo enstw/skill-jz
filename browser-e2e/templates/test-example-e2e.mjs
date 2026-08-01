@@ -1,4 +1,5 @@
-// Example e2e suite built on e2e-cdp.mjs — copy into scripts/, rename, adapt.
+// Example e2e suite built on the browser-cdp skill's cdp-client.mjs — copy
+// into scripts/ (next to cdp-client.mjs + find-browser.mjs), rename, adapt.
 //
 // This is the SELF-CONTAINED flavor: it serves ./public over its own static
 // server, so the suite needs no running backend. For the SERVER-BACKED
@@ -10,7 +11,7 @@
 import { createServer } from "node:http";
 import { readFileSync, existsSync, rmSync } from "node:fs";
 import { join, extname } from "node:path";
-import { launch } from "./e2e-cdp.mjs";
+import { launch } from "./cdp-client.mjs";
 
 const PORT = 9351;      // CDP port — unique per suite, so suites can coexist
 const HTTP_PORT = 8991; // static server port — also unique per suite

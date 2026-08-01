@@ -4,7 +4,7 @@ description: >
   Draw a single designed image (poster, cover, slide, hero, art piece) by
   shelling out to Claude Code's stock canvas-design skill to author an exact
   HTML/CSS/SVG composition, then rasterizing that HTML to PNG with the
-  browser-screenshot skill. PRE-CONDITION: the `claude` CLI must be installed
+  browser-cdp skill. PRE-CONDITION: the `claude` CLI must be installed
   and authenticated, with the stock canvas-design skill available at
   ~/.claude/skills/canvas-design. Same IMAGE_OK/IMAGE_FAIL contract as
   /genimage-img2 and /genimage-nb — the drop-in interchangeable hand-drawn
@@ -20,7 +20,7 @@ Produces one bitmap by **drawing it**, not generating it. The wrapper script
 `gen-image.sh` shells out to `claude -p`, asks Claude Code's stock
 **canvas-design** skill to author a fixed-size HTML/CSS/SVG composition, saves
 that editable `.html` beside the output, then rasterizes it through the
-**browser-screenshot** skill.
+**browser-cdp** skill's `shot.sh`.
 
 This mirrors the sibling primitive shape:
 
@@ -46,15 +46,15 @@ deck or batch workflow can call them interchangeably.
 ```bash
 command -v claude >/dev/null || echo "CLAUDE_MISSING"
 [ -f "$HOME/.claude/skills/canvas-design/SKILL.md" ] || echo "CANVAS_DESIGN_MISSING"
-[ -x "$HOME/.claude/skills/browser-screenshot/scripts/shot.sh" ] || \
-  [ -x "$HOME/.codex/skills/browser-screenshot/scripts/shot.sh" ] || \
-  echo "BROWSER_SCREENSHOT_MISSING"
+[ -x "$HOME/.claude/skills/browser-cdp/scripts/shot.sh" ] || \
+  [ -x "$HOME/.codex/skills/browser-cdp/scripts/shot.sh" ] || \
+  echo "BROWSER_CDP_MISSING"
 ```
 
 (`gen-image.sh` additionally accepts a sibling checkout — a
-`browser-screenshot/scripts/shot.sh` next to this skill's folder — so a
-`BROWSER_SCREENSHOT_MISSING` probe result can still succeed when the whole
-collection is linked together.)
+`browser-cdp/scripts/shot.sh` next to this skill's folder — plus the legacy
+`browser-screenshot` locations, so a `BROWSER_CDP_MISSING` probe result can
+still succeed when the whole collection is linked together.)
 
 `gen-image.sh` checks these itself and emits `IMAGE_FAIL`, so this probe is
 optional.
@@ -62,13 +62,13 @@ optional.
 1. `CLAUDE_MISSING` → stop: "Claude Code CLI not found — install Claude Code."
 1. `CANVAS_DESIGN_MISSING` → **stop**: "the canvas-design skill is required
    because `gen-image.sh` asks Claude to use its stock design skill."
-1. `BROWSER_SCREENSHOT_MISSING` → **stop**: "the browser-screenshot skill is
-   required because it rasterizes the HTML."
+1. `BROWSER_CDP_MISSING` → **stop**: "the browser-cdp skill is
+   required because its shot.sh rasterizes the HTML."
 
 Useful env overrides:
 
 - `GENCANVAS_CLAUDE_BIN` — Claude Code binary path.
-- `GENCANVAS_SHOT` — explicit `browser-screenshot/scripts/shot.sh` path.
+- `GENCANVAS_SHOT` — explicit `browser-cdp/scripts/shot.sh` path.
 - `GENCANVAS_TIMEOUT` — authoring timeout in seconds; falls back to the
   family-wide `GENIMAGE_TIMEOUT` (all three genimage primitives honor it),
   then `600`.
@@ -126,7 +126,7 @@ To re-render after manual edits, pass the HTML source as the first argument:
   "1920x1080"
 ```
 
-In this mode `gen-image.sh` skips Claude and only runs browser-screenshot.
+In this mode `gen-image.sh` skips Claude and only runs the rasterize step.
 
 ## Step 4: Verify and show
 
@@ -147,7 +147,7 @@ In this mode `gen-image.sh` skips Claude and only runs browser-screenshot.
 1. `IMAGE_FAIL claude did not author HTML` / `claude exited N` / `claude
    stalled` → the IMAGE_FAIL line names the full subprocess log; read it.
    Usually auth, permissions, or a refusal to write the requested file.
-1. `IMAGE_FAIL browser-screenshot skill missing` → install/link the
+1. `IMAGE_FAIL browser-cdp skill missing` → install/link the
    dependency or set `GENCANVAS_SHOT`.
 1. `IMAGE_FAIL rasterize failed` → open the `.html` in a browser or run
    `shot.sh --dump` to find the rendering issue; fix the source and re-render.

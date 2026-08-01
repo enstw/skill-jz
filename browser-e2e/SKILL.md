@@ -1,6 +1,6 @@
 ---
 name: browser-e2e
-description: Give a web app a real-browser e2e test suite with zero test dependencies — plain node scripts driving a headless Chromium over CDP. Use when asked to "add e2e tests", "browser-test this app", "test this in a real browser", or when a change needs proof beyond unit tests. Do not npm-install playwright/puppeteer by default and do not paste a fresh 50-line CDP WebSocket client — the bundled templates already handle browser discovery (Brave/Chrome/chromium/playwright-shell), endpoint polling, evalJs, and teardown, and the method scales from one smoke test to a multi-suite matrix.
+description: Give a web app a real-browser e2e test suite with zero test dependencies — plain node scripts driving a headless Chromium over CDP. Use when asked to "add e2e tests", "browser-test this app", "test this in a real browser", or when a change needs proof beyond unit tests. Do not npm-install playwright/puppeteer by default and do not paste a fresh 50-line CDP WebSocket client — the sibling browser-cdp skill's templates already handle browser discovery (Brave/Chrome/chromium/playwright-shell/provisioned wrapper), endpoint polling, evalJs, and teardown; this skill layers the e2e method (suite taxonomy, verdict contract, service-worker offline rules) on top, scaling from one smoke test to a multi-suite matrix. Depends on browser-cdp for the client templates.
 user-invocable: true
 ---
 
@@ -27,16 +27,24 @@ still not iOS Safari — real device testing stays necessary either way.)
 
 ## Seeding a project
 
-1. Copy `templates/e2e-browser.mjs` and `templates/e2e-cdp.mjs` into the
-   project's `scripts/` (or test dir). They are self-contained.
-2. Copy `templates/test-example-e2e.mjs` as the first suite; rename, adapt.
+1. Copy `find-browser.mjs` and `cdp-client.mjs` from the sibling
+   `browser-cdp` skill's `templates/` into the project's `scripts/` (or test
+   dir). They are self-contained as a pair.
+2. Copy this skill's `templates/test-example-e2e.mjs` next to them as the
+   first suite; rename, adapt.
 3. Wire `package.json`: one `test:<name>` per suite, and a `test` script
    chaining every suite that runs with a single command.
 4. No browser on the machine? `pnpm dlx playwright install
-   chromium-headless-shell` (discovery finds it), or use the
-   `headless-chromium` skill for locked-down/container boxes.
+   chromium-headless-shell` (discovery finds it). On locked-down/container
+   boxes (no root, snap-broken chromium, missing libs) run the
+   `browser-cdp` skill's `scripts/provision.sh` once instead — discovery
+   also checks its wrapper (`~/.cache/headless-chromium/chrome`), so the
+   suites work from then on with no env setup.
 
 ## The client
+
+The client is browser-cdp's `cdp-client.mjs` — see that skill for the
+general driving guidance; what matters for suites:
 
 `launch({ port, profile, args, onFail })` →
 `{ evalJs, send, close, sessionId, proc }`

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# browser-screenshot — hardened headless screenshot / DOM dump of any URL or local HTML file.
+# browser-cdp — hardened headless screenshot / DOM dump of any URL or local HTML file.
 #
 # Brave/Chrome 149+ removed the one-shot `--headless --screenshot` / `--dump-dom` capture
 # flags (they now render but write nothing), so this drives a headless instance over the
@@ -26,7 +26,7 @@ CDP="$SELF_DIR/cdp-shot.mjs"
 
 usage() {
   cat >&2 <<'EOF'
-browser-screenshot — hardened headless screenshot / DOM dump (DevTools Protocol).
+browser-cdp shot.sh — hardened headless screenshot / DOM dump (DevTools Protocol).
   shot.sh <url|file> [<url|file>...]   screenshot each -> /tmp/shot-<n>.png (or --out)
   shot.sh --dump <url|file>            print the loaded DOM to stdout (read synchronous data-*)
 Flags: --out <path>   --size WxH (1920x1080)   --settle <ms> (2500)   --guard <sec> (auto from settle)
@@ -35,7 +35,7 @@ EOF
 }
 
 # --- discover a headless browser (Brave preferred; Chrome/Chromium fall-backs;
-#     last resort: the headless-chromium sibling skill provisions a user-space
+#     last resort: provision.sh in this directory provisions a user-space
 #     one — no root, works in containers) ---
 BROWSER="${BROWSER_BIN:-}"
 if [ -z "$BROWSER" ]; then
@@ -50,9 +50,9 @@ if [ -z "$BROWSER" ]; then
   done
 fi
 if [ -z "$BROWSER" ]; then
-  PROVISION="$(dirname "$0")/../../headless-chromium/scripts/provision.sh"
+  PROVISION="$(dirname "$0")/provision.sh"
   if [ -f "$PROVISION" ]; then
-    echo "shot: no browser found — provisioning via headless-chromium skill…" >&2
+    echo "shot: no browser found — provisioning a user-space one (provision.sh)…" >&2
     eval "$(bash "$PROVISION")" && BROWSER="$BROWSER_BIN"
   fi
 fi

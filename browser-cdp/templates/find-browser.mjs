@@ -1,14 +1,21 @@
-// Shared Chromium discovery for the e2e scripts. Resolution order:
+// Shared Chromium discovery for CDP-driving scripts. Resolution order:
 //
 //   1. BROWSER_BIN (explicit override)
-//   2. the usual desktop installs (Brave / Chrome / chromium)
-//   3. playwright's chromium-headless-shell under ~/.cache/ms-playwright —
+//   2. the browser-cdp skill's provisioned wrapper (~/.cache/
+//      headless-chromium/chrome) — if it exists it was provisioned
+//      deliberately and probed working, with lib paths and sandbox flags
+//      baked in; trust it over a possibly-broken system install (snap
+//      chromium in a container)
+//   3. the usual desktop installs (Brave / Chrome / chromium)
+//   4. playwright's chromium-headless-shell under ~/.cache/ms-playwright —
 //      including the extracted-libs LD_LIBRARY_PATH shim for boxes where
 //      libnss3/libnspr4 can't be apt-installed (extra-libs/ next to it)
 //
 // Returns { bin, env }; pass env to spawn() so the lib shim applies. No
 // browser at all is fatal — install one with:
 //   pnpm dlx playwright install chromium-headless-shell
+// or, on locked-down/container boxes (no root, broken snap), provision one
+// with the browser-cdp skill's scripts/provision.sh.
 
 import { statSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -22,6 +29,7 @@ export function findBrowser() {
   const known =
     process.env.BROWSER_BIN ??
     [
+      join(homedir(), ".cache", "headless-chromium", "chrome"),
       "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
       "/usr/bin/chromium",
@@ -43,6 +51,6 @@ export function findBrowser() {
     return { bin: shell, env };
   }
 
-  console.error("no Chromium found; set BROWSER_BIN or run: pnpm dlx playwright install chromium-headless-shell");
+  console.error("no Chromium found; set BROWSER_BIN, run: pnpm dlx playwright install chromium-headless-shell, or provision one with the browser-cdp skill's provision.sh");
   process.exit(1);
 }

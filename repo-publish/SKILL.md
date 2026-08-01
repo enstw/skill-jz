@@ -181,7 +181,7 @@ URL (the card cache can lag a few minutes).
 
 1. `gh repo view <owner>/<repo>` — description present, visibility as
    decided.
-1. Open the repo page (or capture it with the browser-screenshot skill):
+1. Open the repo page (or capture it with the browser-cdp skill):
    README renders, banner shows, no accidental files.
 1. Report: URL, **visibility + the audit reasoning behind it**, artifacts
    created, which genimage renderer landed (and any fallbacks hit along the

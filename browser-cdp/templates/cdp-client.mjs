@@ -1,15 +1,15 @@
-// Shared CDP client for the e2e scripts — the part every suite had pasted in:
-// spawn a headless Chromium (via e2e-browser.mjs discovery), wait for the
+// Shared CDP client — the part every browser-driving script had pasted in:
+// spawn a headless Chromium (via find-browser.mjs discovery), wait for the
 // DevTools endpoint, open the WebSocket, and expose the three primitives the
-// tests are written in. Everything above this line of abstraction (nav settle
-// times, waitFor loops, screenshots, finish/cleanup) deliberately stays in
-// each script: those are the parts that differ, and hiding a 1200 ms vs
-// 1500 ms settle inside a helper is how timings drift unreviewed.
+// callers are written in. Everything above this line of abstraction (nav
+// settle times, waitFor loops, screenshots, finish/cleanup) deliberately
+// stays in each script: those are the parts that differ, and hiding a
+// 1200 ms vs 1500 ms settle inside a helper is how timings drift unreviewed.
 //
 // Runs under node ≥22 (native fetch/WebSocket).
 
 import { spawn } from "node:child_process";
-import { findBrowser } from "./e2e-browser.mjs";
+import { findBrowser } from "./find-browser.mjs";
 
 // launch({ port, profile, args, onFail }) →
 //   { proc, send, evalJs, close, sessionId, targetId }

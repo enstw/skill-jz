@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # gen-image.sh — draw ONE designed image by asking Claude Code's stock
 # canvas-design skill to author an HTML composition, then rasterizing it via
-# browser-screenshot.
+# the browser-cdp skill's shot.sh.
 #
 # Usage:   gen-image.sh "<brief | src.html>" "<output_path.png>" ["<size hint>"]
 # Success: prints  IMAGE_OK <abs_path>   and exits 0
@@ -17,7 +17,7 @@
 #   GENCANVAS_TIMEOUT     wall-clock seconds for the Claude authoring run
 #                         (default: GENIMAGE_TIMEOUT, then 600)
 #   GENCANVAS_CLAUDE_BIN  Claude Code binary (default: claude)
-#   GENCANVAS_SHOT        browser-screenshot shot.sh path override
+#   GENCANVAS_SHOT        browser-cdp shot.sh path override
 
 set -uo pipefail
 
@@ -49,13 +49,16 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 SHOT="${GENCANVAS_SHOT:-}"
 if [ -z "$SHOT" ]; then
   for candidate in \
+    "$HOME/.claude/skills/browser-cdp/scripts/shot.sh" \
+    "$HOME/.codex/skills/browser-cdp/scripts/shot.sh" \
+    "$SELF_DIR/../browser-cdp/scripts/shot.sh" \
     "$HOME/.claude/skills/browser-screenshot/scripts/shot.sh" \
     "$HOME/.codex/skills/browser-screenshot/scripts/shot.sh" \
     "$SELF_DIR/../browser-screenshot/scripts/shot.sh"; do
     [ -x "$candidate" ] && { SHOT="$candidate"; break; }
   done
 fi
-[ -x "$SHOT" ] || fail 3 "browser-screenshot skill missing — set GENCANVAS_SHOT or link browser-screenshot so scripts/shot.sh is executable"
+[ -x "$SHOT" ] || fail 3 "browser-cdp skill missing — set GENCANVAS_SHOT or link browser-cdp so scripts/shot.sh is executable"
 
 _TO=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
 run_with_timeout() {
