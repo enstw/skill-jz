@@ -139,7 +139,11 @@ Renderer selection is a **fixed fallback chain**, not a per-image judgment
 call. For each artifact, try in this order and move to the next only on
 `IMAGE_FAIL` (or a failed pre-flight):
 
-1. **/genimage-img2** (gpt-image-2 via Codex CLI) — first choice.
+1. **/genimage-img2** — first choice. Let that skill enforce its gpt-image-2
+   model contract: use a native tool only when it is confirmed to be OpenAI
+   gpt-image-2; Gemini, another model, or an unknown model is not equivalent
+   and must fall back to its Codex CLI wrapper. Never invoke the wrapper from a
+   Codex runtime that already exposes confirmed native gpt-image-2.
 1. **/genimage-nb** (nano banana via agy CLI) — second.
 1. **/genimage-canvas** (HTML/CSS composition, rasterized) — last resort;
    also the one that renders **exact text** reliably, so when it's the

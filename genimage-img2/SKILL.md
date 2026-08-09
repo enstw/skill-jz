@@ -1,137 +1,96 @@
 ---
 name: genimage-img2
 description: >
-  Generate or edit a single image with OpenAI gpt-image-2, driven through the
-  Codex CLI's built-in imagegen skill. PRE-CONDITION: the `codex` CLI must be
-  installed and authenticated (`codex login`; a ChatGPT subscription is enough
-  — no OPENAI_API_KEY needed). Use when asked to "generate an image", "make an
-  illustration/logo/hero/mockup/slide image", "gpt-image-2", "codex image", or
-  "genimage-img2" (old name "img2"). Siblings with the same IMAGE_OK/IMAGE_FAIL
-  contract: /genimage-nb (nano banana), /genimage-canvas (hand-drawn) — the
-  three are drop-in interchangeable. Not for SVG/vector/code-native graphics —
-  build those directly instead.
-user-invocable: true
+  Generate or edit a raster image specifically with OpenAI gpt-image-2. Prefer
+  a native tool only when the caller can confirm it uses gpt-image-2; otherwise
+  use the bundled Codex CLI wrapper. Use for image,
+  illustration, hero, banner, social card, mockup, or gpt-image requests. Not
+  for SVG/vector/code-native graphics.
 ---
 
-# /genimage-img2 — one gpt-image-2 image via Codex
+# genimage-img2
 
-Produces one bitmap with **gpt-image-2** (OpenAI's current image model) by
-shelling out to `codex exec`. Codex's built-in `imagegen` tool does the
-generation server-side under ChatGPT-subscription auth, so this works without
-`OPENAI_API_KEY`.
+Generate one project-ready raster image specifically with **OpenAI
+gpt-image-2** while adapting to the caller's capabilities. This skill may be
+used by Codex or by another AI agent; its model identity must not drift.
 
-The whole call is wrapped in `gen-image.sh` (in this skill folder), which is
-the single source of truth for the codex invocation. It mirrors how the gstack
-`/codex` skill drives codex: a binary + auth gate, a `gtimeout`/`timeout`
-wrapper, `codex exec` with stdin closed, and a parseable `IMAGE_PATH:` stdout
-contract. Deck workflows reuse this exact script; `genimage-nb/gen-image.sh` (nano
-banana via agy) and `genimage-canvas/gen-image.sh` (hand-drawn compositions) honor the
-same contract.
+## Choose the execution path
 
-## Usage
+Use the first available path:
 
-1. `/genimage-img2 <description>` — generate, save to `./generated-images/<slug>.png`
-1. `/genimage-img2 <description> --out <path.png>` — generate, save to an explicit path
-1. `/genimage-img2 edit <path/to/image> <instructions>` — edit an existing image
+1. **Confirmed native gpt-image-2 tool — preferred.** If the current runtime
+   exposes an image-generation tool and its contract explicitly identifies
+   OpenAI `gpt-image-2` (for example Codex `image_gen`), call it directly.
+2. **Portable Codex CLI fallback.** When the native tool uses Gemini, another
+   model, or an unknown model, do not use it. Run this skill's `gen-image.sh`;
+   it delegates generation to an authenticated Codex CLI gpt-image-2 path.
+3. **No usable renderer.** Return `IMAGE_FAIL` with the missing capability or
+   authentication reason so an orchestrator can try another renderer.
 
-## Step 1: Pre-flight (the pre-condition gate)
+Never treat an arbitrary native image tool as equivalent: Gemini, nano banana,
+and model-unknown tools violate this skill's gpt-image-2 contract. Conversely,
+never shell out to `codex exec` from an agent that already has a confirmed
+native gpt-image-2 tool. In particular, Codex must not start a nested Codex
+app-server merely to reach its own built-in `image_gen` tool.
 
-`gen-image.sh` checks this itself and exits with a clear `IMAGE_FAIL` line, but
-you can probe first:
+## Native path
 
-```bash
+1. Shape the user's request into a concise production prompt: intended use,
+   subject, composition, style, palette, exact text, and exclusions.
+1. Generate directly with the runtime's native image tool.
+1. Inspect the returned image for composition, text accuracy, and requested
+   invariants.
+1. For a project asset, copy the generated file from the runtime-managed
+   output directory into the requested workspace path. Do not assume the tool
+   accepts a destination-path argument.
+1. Do not overwrite an existing asset unless explicitly requested; otherwise
+   use a versioned sibling.
+1. Report `IMAGE_OK <absolute-workspace-path>` to an orchestrating workflow.
+
+For edits, first load a local target into the current runtime's image context,
+then call the native tool in edit mode. Preserve all unrequested details.
+
+## Portable CLI fallback
+
+Use this path after establishing that the caller has no confirmed native
+gpt-image-2 tool. The presence of a different native image model does not
+disable this fallback.
+
+Pre-flight:
+
+```sh
 command -v codex >/dev/null || echo "CODEX_MISSING"
-[ -f "${CODEX_HOME:-$HOME/.codex}/auth.json" ] || [ -n "$OPENAI_API_KEY" ] || [ -n "$CODEX_API_KEY" ] || echo "AUTH_MISSING"
+[ -f "${CODEX_HOME:-$HOME/.codex}/auth.json" ] || \
+  [ -n "$OPENAI_API_KEY" ] || [ -n "$CODEX_API_KEY" ] || echo "AUTH_MISSING"
 ```
 
-1. `CODEX_MISSING` → stop: "Codex CLI not found. Install: `pnpm add -g @openai/codex`, then `codex login`."
-1. `AUTH_MISSING` → stop: "Run `codex login` first (a ChatGPT account is enough — no API key needed)."
+Generate:
 
-## Step 2: Resolve inputs
-
-1. **Description** — the user's prompt, near-verbatim. If generic, lightly
-   structure it (subject, style/medium, composition, lighting, constraints) but
-   do not invent objects, brands, or text the user didn't imply. Quote any
-   required in-image text verbatim, in the language requested.
-1. **Output path** — `--out <path.png>` if given, else `./generated-images/<slug>.png`.
-   Keep it **inside the current working directory** — codex runs with a
-   workspace-write sandbox and writes there. (If the target is outside CWD,
-   `gen-image.sh` still recovers the file from `~/.codex/generated_images/` and
-   copies it into place.)
-1. **Size / aspect hint** — third arg to the script, folded into the prompt as
-   text (the imagegen tool takes prompt text only, no size flag). Square renders
-   fastest. gpt-image-2 honors aspect loosely; see the reference below for valid
-   exact sizes when it matters.
-
-## Step 3: Run
-
-One call. Allow up to ~10 minutes (rendering is typically 1–3 min). Use
-`timeout: 600000` on the Bash tool call.
-
-```bash
-<path-to-skill>/gen-image.sh \
-  "<DESCRIPTION>" \
-  "generated-images/<slug>.png" \
-  "landscape 16:9 aspect ratio, high detail"
+```sh
+<skill-dir>/gen-image.sh \
+  "<description>" \
+  "<workspace-output.png>" \
+  "<size/aspect hint>"
 ```
 
-Env overrides: `IMG2_TIMEOUT` caps the run in wall-clock seconds (falls back
-to the family-wide `GENIMAGE_TIMEOUT`, then 600).
+The wrapper emits `IMAGE_OK <absolute-path>` on success or
+`IMAGE_FAIL <reason>` on failure. Allow up to ten minutes. It supports
+`IMG2_TIMEOUT`, falling back to `GENIMAGE_TIMEOUT` and then 600 seconds.
 
-**Edit mode** — drive codex directly (the script is generate-only):
+The wrapper is intentionally retained for non-Codex hosts and agents without
+a confirmed native gpt-image-2 tool. It is not the default path for Codex.
 
-```bash
-codex exec -s workspace-write --skip-git-repo-check 'Load <IMAGE_PATH_IN> with your view_image tool, then use your built-in generateimage (imagegen) skill in edit mode: <EDIT_INSTRUCTIONS>. Change only what was asked; keep everything else unchanged. Save the result as a NEW versioned file next to the original (never overwrite). Print the final saved path on its own line prefixed with IMAGE_PATH:' 2>&1 | tail -30
-```
+## Prompt and output rules
 
-The script's contract:
-- `IMAGE_OK <abs_path>` on stdout + exit 0 → parse the path, it's the saved file.
-- `IMAGE_FAIL <reason>` + non-zero exit → relay the reason to the user.
-
-## Step 4: Verify and show
-
-1. Confirm the file is a PNG: `file "<path>"`.
-1. **Open the image with your image-capable file reader** so it renders inline.
-1. Report the saved path and dimensions, and note the folder is untracked
-   (suggest `.gitignore` if inside a repo and the user doesn't want binaries in git).
-1. If the result misses the brief, iterate with ONE targeted change per retry —
-   re-state the parts that were correct as invariants.
-
-## Error handling
-
-1. `IMAGE_FAIL ... stalled` (exit 124) → re-run once; if persistent, simplify
-   the prompt or check `~/.codex/logs/`.
-1. `IMAGE_FAIL no image produced` → the script already searched
-   `~/.codex/generated_images/`; show the user the codex tail it printed to stderr.
-1. Auth errors → "Run `codex login` to re-authenticate."
-1. Content-policy refusal → relay verbatim what codex reported; do NOT silently
-   rewrite the prompt to dodge moderation.
-
-## gpt-image-2 reference (for shaping prompts)
-
-Facts as of 2026-06 (OpenAI docs + the codex imagegen skill):
-
-1. **Model**: `gpt-image-2` — strong instruction following, dense/multilingual
-   text rendering, photorealism, accurate label/heading text.
-1. **Sizes**: `auto` or any `WIDTHxHEIGHT` where **both edges are multiples of
-   16**, max edge ≤ 3840px, aspect ≤ 3:1, total pixels between 655,360 and
-   8,294,400. Useful 16:9 picks (both edges ÷16): **1536×864**, **2560×1440**,
-   **3840×2160** (4K, the max). Note 1920×1080 is *not* valid (1080 isn't ÷16).
-1. **Quality**: `low`/`medium`/`high`/`auto`. (Irrelevant to cost when going
-   through codex ChatGPT auth, which bills the subscription, not per-image.)
-1. **No native transparency**: gpt-image-2 has no `background=transparent`. For
-   cutouts, generate on a flat `#00ff00` chroma-key background and strip it with
-   `~/.codex/skills/.system/imagegen/scripts/remove_chroma_key.py`.
-1. **Direct API fallback**: codex bundles
-   `~/.codex/skills/.system/imagegen/scripts/image_gen.py`
-   (`generate`/`edit`/`generate-batch`, defaults to gpt-image-2). Only use it
-   when the user explicitly wants API-level control (exact size, masks, batch)
-   and has `OPENAI_API_KEY` set.
-
-## Important rules
-
-1. Never overwrite an existing asset — version siblings (`hero-v2.png`).
-1. Present codex's output and the final image faithfully; iterate only on the
-   user's direction.
-1. Don't substitute SVG/HTML placeholders when the user asked for a raster
-   image, and vice versa.
+1. Preserve the user's requested content; add only details that materially
+   improve composition or production fitness.
+1. Quote required in-image text verbatim and minimize other text.
+1. Generate one image per call; distinct assets require distinct calls.
+1. Use raster generation for raster requests; do not substitute SVG, HTML, or
+   canvas placeholders.
+1. Inspect the final PNG with an image-capable viewer and confirm its file type
+   and dimensions.
+1. Keep project-referenced assets inside the workspace, not only in a runtime
+   cache or generated-images directory.
+1. On policy or authentication failure, report the real error. Do not silently
+   switch providers or weaken the request.
