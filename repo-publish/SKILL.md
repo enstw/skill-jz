@@ -5,28 +5,29 @@ description: >
   audit (secrets in history, PII, redistribution rights, license) feeding an
   explicit PUBLIC-OR-PRIVATE decision (private-first when in doubt), git init
   if needed, gh repo create + push, a README.md authored from the folder's
-  real contents, the repo description, a README header banner and a 1280×640
-  social-preview card rendered via the genimage primitives in fallback order
-  (/genimage-img2 → /genimage-nb → /genimage-canvas; stop if all fail), and the
-  social-preview upload step (GitHub has no API for it). PRE-CONDITION: `gh`
-  installed and authenticated (`gh auth login`). Use when asked to "publish /
-  migrate this folder (or repo) to GitHub", "create a GitHub repo for this",
-  "open-source this", or "repo-publish".
+  real contents, GitHub security/branch/Actions/release hardening, the repo
+  description, a README header banner and a 1280×640 social-preview card
+  rendered via the genimage primitives in fallback order (/genimage-img2 →
+  /genimage-nb → /genimage-canvas; stop if all fail), and the social-preview
+  upload step (GitHub has no API for it). PRE-CONDITION: `gh` installed and
+  authenticated (`gh auth login`). Use when asked to "publish / migrate this
+  folder (or repo) to GitHub", "create a GitHub repo for this", "open-source
+  this", "audit/harden this GitHub repo", or "repo-publish".
 user-invocable: true
 ---
 
 # /repo-publish — folder → complete GitHub presence
 
 Turns a local folder into a GitHub repo that looks intentional: audited
-visibility, an honest README with a banner, a description, and a social
-card. The image work is delegated to the renderer primitives in a fixed
+visibility, secure repository controls, an honest README with a banner, a
+description, and a social card. The image work is delegated to the renderer primitives in a fixed
 fallback chain (`/genimage-img2` → `/genimage-nb` → `/genimage-canvas` — same
 `IMAGE_OK`/`IMAGE_FAIL` contract); this skill owns the workflow and the
 publishing judgment.
 
 ```
 audit → visibility decision → git state → README → gh create+push
-      → description/topics → banner + social card → upload → verify
+      → GitHub hardening → description/topics → banner + card → upload → verify
 ```
 
 ## Pre-flight
@@ -39,7 +40,7 @@ gh auth status >/dev/null 2>&1 || echo "GH_AUTH_MISSING"
 1. `GH_MISSING` → stop: "install GitHub CLI (`brew install gh`)."
 1. `GH_AUTH_MISSING` → stop: "run `gh auth login` first."
 1. Each genimage primitive gates itself (its own pre-flight); a failed
-   pre-flight just advances the fallback chain in Step 5 — probe there,
+   pre-flight just advances the fallback chain in Step 6 — probe there,
    not before the audit.
 
 ## Step 1: The visibility decision (public or private)
@@ -104,7 +105,7 @@ is still worth it, collaborators see it.
 Author from the folder's **real contents**, not boilerplate — read the
 entry points first. Structure:
 
-1. Banner slot (filled in Step 5): `![<name>](.github/banner.png)`
+1. Banner slot (filled in Step 6): `![<name>](.github/banner.png)`
 1. One-line pitch — written once, reused verbatim as the repo description.
 1. What it is / why it exists (a paragraph, honest scope).
 1. Install / usage — commands that actually work from a fresh clone.
@@ -123,9 +124,30 @@ gh repo edit --add-topic <topic1> --add-topic <topic2>   # 3–6 topics aid disc
 ```
 
 Existing remote already on GitHub → skip create; this becomes a
-"presence refresh" (description, README, images only).
+"presence refresh" (security audit/hardening, description, README, images).
 
-## Step 5: Banner + social card (renderer primitives)
+## Step 5: Harden GitHub controls
+
+For every public repo, and whenever the user asks to audit or harden an
+existing GitHub repo, read and follow
+[references/github-security-baseline.md](references/github-security-baseline.md).
+It is the source of truth for repository security, branch/ruleset policy,
+Actions integrity, release/tag protection, solo-maintainer exceptions, and
+post-change verification.
+
+Apply these sequencing constraints:
+
+1. Audit first and report any setting that could lock out the only maintainer.
+1. Pin every `uses:` dependency to a full commit SHA before enabling an Actions
+   allowlist or mandatory SHA pinning; reversing this order can disable CI.
+1. Do not require an approving review when there is only one trusted maintainer.
+   Record the gap and recommend adding a second maintainer instead.
+1. Treat CI/workflow/classifier changes as security-sensitive. A PR must not be
+   able to weaken the gate and use that same weakened gate as its sole proof.
+1. Make live setting changes only when publishing/hardening is authorized.
+   For a review-only request, produce findings without mutation.
+
+## Step 6: Banner + social card (renderer primitives)
 
 Both images live in **`.github/`** (GitHub renders relative paths from the
 README, and the folder keeps the root clean):
@@ -133,7 +155,7 @@ README, and the folder keeps the root clean):
 | Artifact | Spec | Embed / use |
 | :--- | :--- | :--- |
 | `.github/banner.png` | wide strip, ~1600×400 | `![<name>](.github/banner.png)` at the top of README |
-| `.github/social-preview.png` | **1280×640 (2:1), < 1 MB** (GitHub min 640×320) | uploaded in Step 6; shown on shares/embeds |
+| `.github/social-preview.png` | **1280×640 (2:1), < 1 MB** (GitHub min 640×320) | uploaded in Step 7; shown on shares/embeds |
 
 Renderer selection is a **fixed fallback chain**, not a per-image judgment
 call. For each artifact, try in this order and move to the next only on
@@ -151,7 +173,7 @@ call. For each artifact, try in this order and move to the next only on
    house fonts: see the font guidance in /genimage-canvas § Step 2).
 1. **All three failed → STOP.** Report each primitive's `IMAGE_FAIL` reason
    and halt the workflow here — no placeholder images, no silently
-   continuing to Step 6. The repo is already pushed (Step 4), so nothing is
+   continuing to Step 7. The repo is already pushed (Step 4), so nothing is
    lost; images can be retried once a renderer is fixed.
 
 Prompting notes regardless of renderer:
@@ -165,7 +187,7 @@ Prompting notes regardless of renderer:
 
 Commit the images (and banner reference) — they are part of the repo.
 
-## Step 6: Social preview upload (the no-API step)
+## Step 7: Social preview upload (the no-API step)
 
 **GitHub has no API or gh command for the social preview image.** Two paths:
 
@@ -181,16 +203,19 @@ Verification once uploaded: `curl -s https://github.com/<owner>/<repo> |
 grep -o 'og:image[^>]*'` should show a `repository-images.githubusercontent.com`
 URL (the card cache can lag a few minutes).
 
-## Step 7: Verify and report
+## Step 8: Verify and report
 
 1. `gh repo view <owner>/<repo>` — description present, visibility as
    decided.
 1. Open the repo page (or capture it with the browser-cdp skill):
    README renders, banner shows, no accidental files.
+1. Re-query the GitHub controls listed in the security baseline; do not infer
+   success from a mutation command's exit status alone.
 1. Report: URL, **visibility + the audit reasoning behind it**, artifacts
-   created, which genimage renderer landed (and any fallbacks hit along the
-   chain), and what remains manual (social-preview upload, license choice
-   if deferred, the flip-to-public checklist if private-first).
+   created, security controls enabled/deferred (with reasons), which genimage
+   renderer landed (and any fallbacks hit along the chain), and what remains
+   manual (social-preview upload, license choice if deferred, the flip-to-public
+   checklist if private-first).
 
 ## Important rules
 
