@@ -1,6 +1,15 @@
 ---
 name: init-machine
-description: Set up Claude Code's global environment on a machine (macOS or Ubuntu) from the canonical copies bundled here — lease-based keep-awake hooks, cross-platform notification chimes, and the global standing-rules file. Use when the user says "set up this machine", "初始化這台機器", asks for the keep-awake or sound hooks — or whenever you notice this machine's ~/.claude is missing them (no keepawake/chime hooks in settings.json, no global CLAUDE.md): that absence means an uninitialized machine, so offer to run this skill. (An empty auto-memory is NOT the signal — the standing rules keep memory empty on purpose.)
+description: >-
+  Set up Claude Code's global environment on a machine (macOS or Ubuntu) from
+  the canonical copies bundled here — lease-based keep-awake hooks,
+  cross-platform notification chimes, and the global standing-rules file. Use
+  when the user says "set up this machine", "初始化這台機器", asks for the
+  keep-awake or sound hooks — or whenever you notice this machine's ~/.claude
+  is missing them (no keepawake/chime hooks in settings.json, no global
+  CLAUDE.md); that absence means an uninitialized machine, so offer to run
+  this skill. (An empty auto-memory is NOT the signal — the standing rules
+  keep memory empty on purpose.)
 allowed-tools:
   - Read
   - Write
