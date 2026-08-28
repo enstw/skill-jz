@@ -4,9 +4,8 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 
 ## Skills
 
-- `flush/SKILL.md` — end-of-session project handoff: update repo state, commit, push.
+- `flush/SKILL.md` — end-of-session project handoff and agent-memory drain: update repo state; migrate every entry of the agent's machine-local memory store into repo files (three-way triage: migrate / drop with reason / ask the user for personal or cross-project facts), clearing the store only after the migrated content is committed; commit; push. Also answers "clear memory" on its own. Only ever deletes entry files inside the memory store — transcripts and local caches are never touched. Slash `/flush`.
 - `sync/SKILL.md` — lightweight git sync. Pushes already-committed work, fast-forwards when remote is ahead and tree is clean, warns on dirty/untracked. Workspace mode: if cwd is a parent of repo subfolders, runs sync on each and aggregates. Never commits, merges, rebases, or force-pushes. Slash `/sync`. Pairs with `/flush`.
-- `clear-memory/SKILL.md` — migrate the agent's per-project session memory into the repo's own files, then clear the store. Three-way triage per entry (migrate / drop with reason / ask the user for personal or cross-project facts); clearing requires the migrated content to be committed first; only ever deletes files inside the memory store. The explicit cleanup counterpart `/flush` refuses to perform. Slash `/clear-memory`.
 - `init-agents/SKILL.md` — initialize a directory with AI-agnostic agent context (`AGENTS.md` canonical + pointers from agent-specific instruction files). Description-triggered, so no slash collision with the built-in `/init`.
 - `recommend/SKILL.md` — pause and surface direction-level recommendations or refactors. Slash `/recommend` plus self-triggers on drift signals.
 - `self-evaluate/SKILL.md` — estimate PDCA loops remaining before the work is finished. Cost-driven, phase-agnostic. Investigates (code/env/smoke/web) before estimating. Slash `/self-evaluate`.
@@ -28,11 +27,11 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 - **One skill per top-level folder.** Add new skills as `<name>/SKILL.md`. Link them from `README.md` and from this file.
 - **Solo-repo workflow.** Direct commits and pushes. No PR step.
 - **Handoff-first for `/flush`.** Let the agent decide what project state matters. Don't create docs or commits just to record that nothing happened.
-- **No automatic cache wipe in `/flush`.** It's a durable handoff workflow, not a cache deletion routine.
+- **`/flush` must drain agent memory.** Memory stores are machine-local and don't sync, so a handoff that leaves them untouched loses that state on the next machine. Flush = write out, then empty, with the clearing gated on a commit. It still never deletes transcripts or local caches — the only files it removes are entry files inside the memory store.
 
 ## Layout
 
-- `flush/`, `sync/`, `clear-memory/`, `init-agents/`, `init-machine/`, `recommend/`, `self-evaluate/`, `robust-web-fetch/`, `pdf-to-markdown/`, `browser-cdp/`, `browser-e2e/`, `genimage-img2/`, `genimage-nb/`, `genimage-canvas/`, `yt2sub/`, `repo-publish/`, ... — one folder per skill.
+- `flush/`, `sync/`, `init-agents/`, `init-machine/`, `recommend/`, `self-evaluate/`, `robust-web-fetch/`, `pdf-to-markdown/`, `browser-cdp/`, `browser-e2e/`, `genimage-img2/`, `genimage-nb/`, `genimage-canvas/`, `yt2sub/`, `repo-publish/`, ... — one folder per skill.
 - `README.md` — outward-facing description and install instructions.
 - `AGENTS.md` — this file (orientation for any agent working on the repo).
 - `SKILLS-CLI.md` — how this repo stays compatible with the agent-agnostic `skills` CLI (agentskills.dev); re-verify with `npx -y skills add enstw/skill-jz -l` after structural changes.
