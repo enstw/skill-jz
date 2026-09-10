@@ -6,7 +6,7 @@ description: >-
   "I want this on my phone", "pass this to <someone>", "share the file", "傳給我",
   "把檔案傳到手機", "我要下載" — or whenever YOU have just produced a file (report, archive,
   image, build) the user needs somewhere other than this shell. Streams it through the ppng.io
-  piping-server relay and hands back an ASCII QR + clickable URL + receiving curl. Do NOT spin up
+  piping-server relay and hands back an ASCII QR + a clickable URL. Do NOT spin up
   `python -m http.server`, upload to transfer.sh / a pastebin, or commit the file just to move it —
   this is the house method. Encrypt sensitive content first. Also covers showing a file locally
   on macOS (Quick Look).
@@ -79,16 +79,18 @@ The command **blocks until the receiver connects** — it is the live pipe, not 
    echo "$URL"
    ```
 
-2. **Hand the user all three outputs** (next section), then wait. Tell them the pipe is live and
+2. **Hand the user both outputs** (next section), then wait. Tell them the pipe is live and
    one-shot.
 
 3. **If nobody ever connects, kill it** — don't leave a resident `curl` holding the pipe. Track the
    job (`jobs`, or the `$!` PID) and `kill` it if the user says the handoff is done or abandoned.
 
-## What to hand the user — always three outputs
+## What to hand the user — always two outputs
 
-The recipient may be a phone in the user's hand, a browser on another laptop, or a shell on a
-server. Each wants the URL in a different form, so **always emit all three**, in this order:
+The recipient is a phone in the user's hand or a browser on another device — that's who this path
+is for. (There is no shell-side receiver: anyone with a shell that can reach this machine just
+`cp`/`scp`s the file, and a shell that *can't* reach it isn't where the user is looking.) So
+**always emit both**, in this order:
 
 ### 1. An ASCII QR code of the URL
 
@@ -115,14 +117,6 @@ command qrencode -t UTF8 -o - "$URL"       # compact half-block UTF-8, NO ANSI c
 
 The bare URL on its own line, as a link so it renders clickable in the reply — for a browser
 recipient, opening it is the whole receive step.
-
-### 3. The receiving `curl` command
-
-For a shell recipient, with the real filename already filled in so it's copy-paste-runnable:
-
-```sh
-curl -o <file> "<url>"
-```
 
 ## Sensitive content: encrypt first
 
@@ -156,7 +150,8 @@ so fall back to the ppng.io network handoff above.
 
 - Long random path, always. Never a guessable name.
 - URL to the user *before* the transfer can complete (sender blocks until pulled).
-- All three outputs, every time: ASCII QR (in a fenced code block), clickable URL, receiving `curl`.
+- Both outputs, every time: ASCII QR (in a fenced code block) + clickable URL. No receiving `curl` —
+  a shell that can reach this machine uses `cp`/`scp` instead.
 - One receiver, one use — regenerate the path to resend.
 - Encrypt sensitive bytes before they touch the relay; key travels out-of-band.
 - Kill an unpulled sender rather than leaving it resident.
