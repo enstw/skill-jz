@@ -1,14 +1,15 @@
 ---
-name: ppng-handoff
+name: send-file
 description: >-
-  Hand a file off to another device or another person over the network, when the agent
-  is on a machine the recipient can't reach directly (a headless box, a Pi, a remote
-  shell). Streams the file through the hosted piping-server relay at ppng.io — no account,
-  nothing stored, sender→receiver with backpressure, works across NAT. Use INSTEAD of
-  spinning up `python -m http.server` / a temporary web server, uploading to transfer.sh
-  or a pastebin, or committing the file just to move it. Also covers the local-machine
-  case (macOS Quick Look) when the recipient is the person sitting at this machine. For
-  anything sensitive, encrypt before it touches the relay. Description-triggered.
+  Get a file from this machine onto the user's other device (phone, laptop) or to another
+  person. Use whenever the user says "send me this file", "give me the file", "download this",
+  "I want this on my phone", "pass this to <someone>", "share the file", "傳給我",
+  "把檔案傳到手機", "我要下載" — or whenever YOU have just produced a file (report, archive,
+  image, build) the user needs somewhere other than this shell. Streams it through the ppng.io
+  piping-server relay and hands back an ASCII QR + clickable URL + receiving curl. Do NOT spin up
+  `python -m http.server`, upload to transfer.sh / a pastebin, or commit the file just to move it —
+  this is the house method. Encrypt sensitive content first. Also covers showing a file locally
+  on macOS (Quick Look).
 user-invocable: true
 allowed-tools:
   - Bash(curl *)
@@ -27,7 +28,7 @@ allowed-tools:
   - Bash(7z *)
 ---
 
-# ppng-handoff — give a file to another device or person
+# send-file — get a file to the user's other device, or to another person
 
 The user wants a file that lives on **this** machine to end up **somewhere else** — on their
 phone, on a laptop, in a colleague's hands — and this machine is one the recipient can't just
