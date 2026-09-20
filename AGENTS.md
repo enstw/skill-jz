@@ -4,6 +4,8 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 
 ## Skills
 
+- `context-cleanup/SKILL.md` — clean, correct, and prevent session-log buildup in a project’s context; defines destinations, preservation rules, and completion checks while respecting its existing storage.
+
 - `flush/SKILL.md` — end-of-session project handoff and agent-memory drain: update repo state; migrate every entry of the agent's machine-local memory store into repo files (triage: migrate / drop with reason / personal or cross-project facts go to the home the runner names, else stay in memory — never blocks the handoff on a question), clearing the store only after the migrated content is committed; commit; push. Also answers "clear memory" on its own. Only ever deletes entry files inside the memory store — transcripts and local caches are never touched. Slash `/flush`.
 - `sync/SKILL.md` — lightweight git sync. Pushes already-committed work, fast-forwards when remote is ahead and tree is clean, warns on dirty/untracked. Workspace mode: if cwd is a parent of repo subfolders, runs sync on each and aggregates. Never commits, merges, rebases, or force-pushes. Slash `/sync`. Pairs with `/flush`.
 - `init-agents/SKILL.md` — initialize a directory with AI-agnostic agent context (`AGENTS.md` canonical + pointers from agent-specific instruction files). Description-triggered, so no slash collision with the built-in `/init`.
@@ -50,5 +52,3 @@ See `README.md` for the AI-agnostic installation prompts. To install one skill, 
 - Self-contained browser integration: `uv run --with pypdf --with markdownify --with playwright --with curl-cffi python tests/fetch_browser_e2e.py`. It serves invented documents on loopback, uses the browser-cdp runtime, and verifies cookies across separate commands, disconnect/reconnect, profile ownership, atomic failures, chapter merges, and explicit printing. Requires Node 22+ and a working Chromium. No real account is used.
 - Hosted EZproxy and publisher behavior requires a separate user-assisted check; local fixtures do not establish current publisher compatibility.
 - Browser transport smoke: `node tests/browser_session_e2e.mjs` opens an isolated visible browser and verifies attachment, disconnect, owned cleanup, and occupied-port refusal. Add `--headless` where a display is unavailable.
-
-Verified 2026-09-20: 17 offline acquisition regressions, the loopback publisher browser suite, and the visible-browser transport smoke passed on macOS/Brave. `pnpm dlx skills add . --list` discovered 18 skills, including authenticated-fetch. No real institutional account or publisher entitlement was tested.

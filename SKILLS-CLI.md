@@ -10,7 +10,7 @@ No structural changes are needed. The CLI discovers all skills today:
 npx -y skills add enstw/skill-jz -l   # list without installing
 ```
 
-This clones the repo and reports `Found 14 skills` (browser-cdp, browser-e2e, flush, genimage-canvas, genimage-img2, genimage-nb, init-agents, pdf-to-markdown, recommend, repo-publish, robust-web-fetch, self-evaluate, sync, yt2sub — as of 2026-08-01; the CLI reads the pushed GitHub state, so re-verify after pushing). Re-run this command after any change to confirm the repo still parses.
+This lists the skills in the pushed GitHub state. Re-run discovery after structural changes; keep the count in the command output rather than this guide, because a stored count becomes stale when a skill is added.
 
 ## What makes a repo `skills`-compatible
 
@@ -55,5 +55,3 @@ The README's symlink approach (`gemini skills link ./flush`, or a manual symlink
 Follow the existing convention and it stays compatible automatically: create `<name>/SKILL.md` with `name` + `description` frontmatter, bundle any scripts under `<name>/`, link it from `README.md` and `AGENTS.md`, then verify with `npx -y skills add enstw/skill-jz -l`.
 
 For an unpublished structural change, list the local checkout with `pnpm dlx skills add . --list`; the remote listing only validates what has already been pushed.
-
-Verified locally on 2026-09-20 after the authenticated-fetch split: 18 skills discovered, including authenticated-fetch, robust-web-fetch, and browser-cdp. This does not claim the remote checkout has already received the change.

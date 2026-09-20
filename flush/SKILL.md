@@ -66,7 +66,8 @@ If both sources are empty and the working tree has no relevant change, say so an
 Prefer existing project files; create a new one only when useful state has no existing home. Match each file's language, tone, and list conventions; preserve unrelated sections; keep it concise, dated when useful, and AI-agnostic.
 
 - `AGENTS.md` or equivalent: durable conventions and how to work in the repo.
-- `PROGRESS.md`, `STATUS.md`, or `NOTES.md`: current handoff state, recent progress, decisions, blockers.
+- Project status files or their managing tool: current state, open work, and blockers. Follow the project’s task/decision/history split and update existing entries, because appending completed work makes yesterday’s state look current.
+- Decisions belong in the project’s designated decision/design source with their reasons; completion narratives and individual test-run results belong in existing history or the commit message. If accumulated context needs repair, use the available `context-cleanup` skill; a clean handoff does not require an extra cleanup report.
 - `TODO.md` or issue tracker references: open actions and unresolved questions.
 - `README.md`: user-facing usage, install, or description updates.
 - `docs/` or ADRs: design rationale future contributors need.
