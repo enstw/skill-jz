@@ -1,430 +1,200 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = [
-#     "curl-cffi",
-#     "camoufox[geoip]",
-#     "markdownify",
-#     "playwright",
-# ]
+# dependencies = ["curl-cffi", "camoufox[geoip]", "markdownify", "pypdf>=4"]
 # ///
-
-"""Robustly fetch web source material.
-
-Escalates across four *independent* strategies rather than a ladder of
-brittle patches — a defense that adapts to one does not break the others:
-
-  1. curl-cffi      — cheap "fight": real browser TLS/HTTP-2 fingerprint,
-                      no JS. Clears the passive-fingerprint majority of
-                      blocks.
-  2. Wayback        — "sidestep": fetch an Internet Archive snapshot. One
-                      cheap API call; beats even CAPTCHA / IP-reputation
-                      because the origin is never touched. Fails only if
-                      not archived.
-  3. Rendered PDF   — "render and save": load the page in headless
-                      Chromium and save it via the browser's own
-                      print-to-PDF, exactly what a human does with Ctrl-P.
-                      Wins for SPAs whose content arrives via XHR after
-                      `domcontentloaded` — the case camoufox's wait_until
-                      misses. Loses against anti-bot CDNs (no anti-detect).
-  4. camoufox       — strong "fight": anti-detect Firefox that passes
-                      non-interactive JS challenges, then pulls the file
-                      with the earned clearance cookies.
-
-Residual ceiling (no *unattended* tier beats this): interactive CAPTCHA
-(Turnstile/hCaptcha needing a human action) and IP-reputation blocks. The
-next step there is Tier 5 (`assisted.py`) — a headed browser where a human
-clears the challenge once and the agent downloads afterward; the all-tiers-
-failed message prints the exact commands. Only if no human is available do
-the paid Web Unlocker services become the fallback.
-"""
-
+"""Fetch a known URL. Rendered PDFs and Markdown fallback require explicit flags."""
 import argparse
-import os
-import signal
+import json
 import subprocess
 import sys
+import tempfile
 import time
+from pathlib import Path
 
-from curl_cffi import requests
-from markdownify import markdownify as md
+from fetch_common import atomic_write, emit, pdf_pages, prepare_document, resolve_skill, result, run_captured, validate_html
 
-
-ARCHIVE_HEADERS = {"User-Agent": "robust-web-fetch/1.0 (+https://archive.org)"}
-
-
-def has_pdf_signature(content):
-    # PDFs start with %PDF, occasionally after a few stray leading bytes.
-    return b"%PDF" in content[:1024]
+ARCHIVE_HEADERS = {'User-Agent': 'robust-web-fetch/2.0 (+https://archive.org)'}
 
 
-def output_expects_pdf(output_path):
-    return output_path.endswith(".pdf")
+def log(message):
+    print(message, file=sys.stderr, flush=True)
 
 
-def write_valid_output(content, output_path):
-    """Write bytes, enforcing the PDF magic-byte check for .pdf targets so a
-    CDN HTML challenge page is never silently saved as a PDF."""
-    if output_expects_pdf(output_path) and not has_pdf_signature(content):
-        return False
-    with open(output_path, "wb") as f:
-        f.write(content)
-    return True
+def save_response(content, output, url, final_url, method, content_type='', snapshot_at=None):
+    body, artifact, details = prepare_document(content, output, content_type)
+    atomic_write(output, body)
+    return result('success', input_url=url, output=output, method=method,
+                  artifact=artifact, final_url=final_url, snapshot_at=snapshot_at,
+                  complete=True, bytes=len(body), **details)
 
 
-# --- Tier 1: curl-cffi -------------------------------------------------------
+def attempt_tls_impersonation_download(url, output):
+    from curl_cffi import requests
+    response = requests.get(url, impersonate='chrome', timeout=30)
+    if response.status_code != 200:
+        raise ValueError(f'HTTP {response.status_code}')
+    return save_response(response.content, output, url, response.url, 'curl-cffi',
+                         response.headers.get('content-type', ''))
 
-def attempt_tls_impersonation_download(url, output_path):
-    print(f"[1/4] curl-cffi (latest Chrome fingerprint) -> {output_path}")
-    try:
-        # "chrome" auto-resolves to curl-cffi's newest fingerprint, so this
-        # stays current as the dependency is upgraded.
-        response = requests.get(url, impersonate="chrome", timeout=30)
-        if response.status_code != 200:
-            print(f"      HTTP {response.status_code}.")
-            return False
-        content = response.content
-        if output_expects_pdf(output_path) and not has_pdf_signature(content):
-            ct = response.headers.get("content-type", "unknown")
-            print(f"      HTTP 200 but not a PDF (content-type: {ct}, "
-                  f"{len(content)} bytes) — likely a CDN challenge page.")
-            return False
-        write_valid_output(content, output_path)
-        print(f"      Success! {len(content)} bytes.")
-        return True
-    except Exception as e:
-        print(f"      Error: {e}")
-        return False
-
-
-# --- Tier 2: Wayback Machine -------------------------------------------------
 
 def get_archive_response(url, params=None):
-    # archive.org throttles unauthenticated bursts to 429 with an HTML body.
-    # Retry once honoring Retry-After; return the Response on 200, else None.
+    from curl_cffi import requests
     for attempt in range(2):
-        r = requests.get(url, params=params, headers=ARCHIVE_HEADERS, timeout=20)
-        if r.status_code == 200:
-            return r
-        if r.status_code == 429 and attempt == 0:
-            retry_after = 2
+        response = requests.get(url, params=params, headers=ARCHIVE_HEADERS, timeout=20)
+        if response.status_code == 200:
+            return response
+        if response.status_code == 429 and attempt == 0:
             try:
-                retry_after = int(r.headers.get("Retry-After", "2"))
+                pause = min(30, max(0, int(response.headers.get('Retry-After', '2'))))
             except ValueError:
-                pass
-            print(f"      Rate-limited by archive.org; backing off {retry_after}s.")
-            time.sleep(retry_after)
-            continue
-        return None
-    return None
+                pause = 2
+            log(f'Archive rate limit; waiting {pause}s')
+            time.sleep(pause)
+        else:
+            raise ValueError(f'Archive HTTP {response.status_code}')
+    raise ValueError('Archive rate limit')
 
 
-def attempt_archive_snapshot(url, output_path, html_fallback):
-    print("[2/4] Wayback Machine snapshot lookup")
-    try:
-        avail_resp = get_archive_response(
-            "https://archive.org/wayback/available", params={"url": url},
-        )
-        if avail_resp is None or not avail_resp.headers.get(
-            "content-type", "",
-        ).startswith("application/json"):
-            print("      No usable snapshot.")
-            return False
-        avail = avail_resp.json()
-        snap = avail.get("archived_snapshots", {}).get("closest")
-        if not snap or not snap.get("available") or snap.get("status") != "200":
-            print("      No usable snapshot.")
-            return False
-        # Insert the `id_` identity modifier so we get the raw original bytes,
-        # not the Wayback-wrapped HTML viewer.
-        ts = snap["timestamp"]
-        snap_url = snap["url"].replace(f"/web/{ts}/", f"/web/{ts}id_/", 1)
-        print(f"      Snapshot {ts} — downloading raw copy.")
-        r = requests.get(snap_url, timeout=30, headers=ARCHIVE_HEADERS)
-        if r.status_code != 200:
-            print(f"      Snapshot fetch HTTP {r.status_code}.")
-            return False
-        # PDF target with a PDF snapshot — save and done.
-        if output_expects_pdf(output_path) and has_pdf_signature(r.content):
-            write_valid_output(r.content, output_path)
-            print(f"      Success! {len(r.content)} bytes from archive.")
-            return True
-        # PDF target with an HTML snapshot — write Markdown if requested.
-        if output_expects_pdf(output_path):
-            if not html_fallback:
-                print("      Snapshot is not a PDF.")
-                return False
-            out = output_path[:-4] + ".md"
-            html = r.content.decode("utf-8", errors="replace")
-            with open(out, "w", encoding="utf-8") as f:
-                f.write(md(html))
-            print(f"      Success! Page extracted to {out} "
-                  f"(Markdown from archive).")
-            return True
-        # Non-PDF target — write bytes directly.
-        write_valid_output(r.content, output_path)
-        print(f"      Success! {len(r.content)} bytes from archive.")
-        return True
-    except Exception as e:
-        print(f"      Error: {e}")
-        return False
+def attempt_archive_snapshot(url, output, html_fallback=False):
+    from curl_cffi import requests
+    available = get_archive_response('https://archive.org/wayback/available', params={'url': url})
+    snapshot = available.json().get('archived_snapshots', {}).get('closest')
+    if not snapshot or not snapshot.get('available') or snapshot.get('status') != '200':
+        raise ValueError('No usable archive snapshot')
+    stamp = snapshot['timestamp']
+    archived_url = snapshot['url'].replace(f'/web/{stamp}/', f'/web/{stamp}id_/', 1)
+    response = requests.get(archived_url, headers=ARCHIVE_HEADERS, timeout=30)
+    if response.status_code != 200:
+        raise ValueError(f'Snapshot HTTP {response.status_code}')
+    target = output
+    if Path(output).suffix.lower() == '.pdf' and b'%PDF-' not in response.content[:1024] and html_fallback:
+        target = str(Path(output).with_suffix('.md'))
+    return save_response(response.content, target, url, response.url, 'wayback',
+                         response.headers.get('content-type', ''), stamp)
 
 
-# --- Tier 3: rendered PDF ----------------------------------------------------
+def attempt_rendered_pdf(url, output):
+    if Path(output).suffix.lower() != '.pdf':
+        raise ValueError('Rendering requires a .pdf output')
+    skill = resolve_skill('browser-cdp', __file__)
+    # The browser only writes in scratch space; rejected pages never replace output.
+    with tempfile.TemporaryDirectory(prefix='fetch-render-') as temporary:
+        scratch = Path(temporary) / 'render.pdf'
+        response = run_captured([
+            'node', str(skill / 'scripts/session.mjs'), 'render',
+            '--url', url, '--out', str(scratch),
+        ], timeout=120)
+        page = json.loads(response)
+        validate_html(page['html'])
+        # A native PDF viewer is not the source document.
+        if 'application/pdf' in page['html'].lower():
+            raise ValueError('Native PDF viewer; obtain the original PDF bytes')
+        content = scratch.read_bytes()
+        pages = pdf_pages(content)
+        atomic_write(output, content)
+        return result('success', input_url=url, output=output, final_url=page['final_url'],
+                      method='browser-cdp', artifact='rendered_pdf', complete=True,
+                      pdf_pages=pages, bytes=len(content), validation='page_screening+pdf_structure')
 
-def attempt_rendered_pdf(url, output_path):
-    """Render the page in headless Chromium and save it via the browser's own
-    print-to-PDF — same path a human takes when they Ctrl-P.
 
-    Wins where camoufox loses: React/Vue SPAs whose content arrives via XHR
-    *after* `domcontentloaded`, so camoufox's `wait_until="domcontentloaded"`
-    fires before the article body is rendered. networkidle here covers that.
-
-    Loses where camoufox wins: pages walled by an anti-bot CDN
-    (Cloudflare/Akamai) — vanilla Chromium has no anti-detect, so it gets a
-    challenge page. Tier 4 picks those up.
-
-    Only meaningful for `.pdf` targets — HTML targets skip this tier.
-    """
-    if not output_expects_pdf(output_path):
-        print("[3/4] rendered PDF: skipped (HTML target).")
-        return False
-
-    print(f"[3/4] rendered PDF (Chromium print-to-PDF) -> {output_path}")
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError as e:
-        print(f"      playwright not available: {e}")
-        return False
-
-    # One-time chromium download (~170MB on first run, cached per-user).
-    print("      Ensuring chromium binary is installed "
-          "(one-time ~170MB download on first run)...")
-    try:
-        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"],
-                       check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as e:
-        print(f"      playwright install failed:\n{e.stderr or e.stdout}")
-        return False
-
-    class _PrintTimeout(Exception):
-        pass
-
-    def _on_alarm(signum, frame):
-        raise _PrintTimeout()
-
-    prev_handler = signal.signal(signal.SIGALRM, _on_alarm)
-    prev_alarm = signal.alarm(90)
-    try:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True)
-            ctx = browser.new_context(viewport={"width": 1280, "height": 1800})
-            page = ctx.new_page()
-            # Page-level JS errors otherwise escalate via Playwright's Node
-            # bridge to a fatal that wedges the Python parent.
-            page.on("pageerror", lambda exc: None)
-
-            # networkidle is the right wait for SPAs that load via XHR after
-            # the initial parse. Some sites keep long-poll/SSE connections
-            # open and never go idle; fall back to domcontentloaded plus the
-            # 4 s soak below in that case.
+def camoufox_worker(url, output, html_fallback):
+    from camoufox.sync_api import Camoufox
+    with Camoufox(headless=True) as browser:
+        page = browser.new_page()
+        last_error = 'No document response'
+        try:
+            page.goto(url, wait_until='domcontentloaded', timeout=45000)
+        except Exception as error:
+            # A native PDF can start a download instead of committing navigation.
+            # The session request below still verifies status and actual bytes.
+            last_error = str(error)
+        for attempt in range(4):
+            page.wait_for_timeout(2000)
+            response = None
             try:
-                response = page.goto(url, wait_until="networkidle",
-                                     timeout=45000)
-            except Exception as e:
-                print(f"      networkidle failed ({e}); retrying with "
-                      f"domcontentloaded.")
-                response = page.goto(url, wait_until="domcontentloaded",
-                                     timeout=45000)
-
-            if response is None:
-                print("      No navigation response.")
-                return False
-            if response.status != 200:
-                print(f"      HTTP {response.status} — likely a CDN block. "
-                      f"Tier 4 (camoufox) will retry with anti-detect.")
-                return False
-            ct = response.headers.get("content-type", "")
-            if ct.startswith("application/pdf"):
-                # Native-PDF URL — printing the viewer chrome would give a
-                # wrong PDF. Hand to tier 4, which downloads bytes directly.
-                print(f"      URL serves a native PDF (content-type: {ct}); "
-                      f"tier 4 will pull the file directly.")
-                return False
-
-            # Soak so XHR-driven SPA content can render before print.
-            page.wait_for_timeout(4000)
-            page.pdf(
-                path=output_path,
-                format="A4",
-                print_background=True,
-                margin={"top": "12mm", "bottom": "12mm",
-                        "left": "12mm", "right": "12mm"},
-            )
-            browser.close()
-
-        with open(output_path, "rb") as f:
-            head = f.read(1024)
-        if not has_pdf_signature(head):
-            print("      page.pdf produced a non-PDF file.")
-            return False
-        size = os.path.getsize(output_path)
-        print(f"      Success! {size} bytes printed from rendered page.")
-        return True
-    except _PrintTimeout:
-        print("      Chromium print: timed out after 90s.")
-        return False
-    except Exception as e:
-        print(f"      Error: {e}")
-        return False
-    finally:
-        signal.alarm(prev_alarm)
-        signal.signal(signal.SIGALRM, prev_handler)
+                response = page.context.request.get(url, timeout=15000)
+                if response.status != 200:
+                    raise ValueError(f'HTTP {response.status}')
+                return save_response(response.body(), output, url, response.url, 'camoufox',
+                                     response.headers.get('content-type', ''))
+            except Exception as error:
+                last_error = str(error)
+            finally:
+                if response is not None:
+                    response.dispose()
+        if Path(output).suffix.lower() != '.pdf' or html_fallback:
+            target = str(Path(output).with_suffix('.md')) if Path(output).suffix.lower() == '.pdf' else output
+            return save_response(page.content().encode(), target, url, page.url, 'camoufox', 'text/html')
+        raise ValueError(last_error)
 
 
-# --- Tier 4: camoufox --------------------------------------------------------
-
-def attempt_antidetect_browser(url, output_path, html_fallback):
-    print("[4/4] camoufox (anti-detect browser, passes JS challenges)")
+def attempt_antidetect_browser(url, output, html_fallback=False):
+    # A subprocess deadline also covers browser startup; SIGALRM in Playwright's
+    # event bridge could leave child processes running on a timeout.
+    from camoufox.pkgman import installed_verstr
     try:
-        from camoufox.sync_api import Camoufox
-    except ImportError as e:
-        print(f"      camoufox not available: {e}")
-        return False
+        installed_verstr()
+    except (FileNotFoundError, ValueError):
+        subprocess.run([sys.executable, '-m', 'camoufox', 'fetch'], check=True, timeout=180,
+                       stdout=sys.stderr, stderr=sys.stderr)
+    command = [sys.executable, __file__, url, output, '--camoufox-worker', '--json']
+    if html_fallback:
+        command.append('--html-fallback')
+    return json.loads(run_captured(command, timeout=100))
 
-    # One-time patched-Firefox download (~150MB on first run).
-    print("      Ensuring camoufox browser is installed "
-          "(one-time ~150MB download on first run)...")
-    # Use the *current* interpreter (the uv-resolved venv that already has
-    # camoufox) — no dependency on `uv` or a `camoufox` script being on PATH,
-    # and `camoufox fetch` itself resolves the right binary per OS/arch.
-    try:
-        subprocess.run([sys.executable, "-m", "camoufox", "fetch"],
-                        check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as e:
-        print(f"      camoufox fetch failed:\n{e.stderr or e.stdout}")
-        return False
 
-    # Wall-clock safety net so a wedged FF session can't spin the parent
-    # forever (see DOJ LockBit case — uncaught page error → 49 CPU-minutes).
-    class _CamoufoxTimeout(Exception):
-        pass
-
-    def _on_alarm(signum, frame):
-        raise _CamoufoxTimeout()
-
-    prev_handler = signal.signal(signal.SIGALRM, _on_alarm)
-    prev_alarm = signal.alarm(90)
-    try:
-        with Camoufox(headless=True) as browser:
-            page = browser.new_page()
-            # Page-level JS errors otherwise escalate through Playwright's
-            # Node bridge to a fatal that wedges the Python parent.
-            page.on("pageerror", lambda exc: None)
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
-
-            # Give a non-interactive JS challenge time to resolve and set its
-            # clearance cookie, then pull the file with the earned context.
-            for attempt in range(4):
-                page.wait_for_timeout(4000)
-                if not output_expects_pdf(output_path):
-                    break  # HTML target — go straight to extraction
-                resp = page.context.request.get(url, timeout=15000)
-                if resp.ok:
-                    body = resp.body()
-                    if has_pdf_signature(body):
-                        write_valid_output(body, output_path)
-                        print(f"      Success! {len(body)} bytes via "
-                              f"camoufox-earned cookies.")
-                        return True
-                print(f"      Challenge not cleared yet "
-                      f"(attempt {attempt + 1}/4)...")
-
-            if output_expects_pdf(output_path) and not html_fallback:
-                print("      Could not retrieve the PDF (interactive CAPTCHA "
-                      "or IP-reputation block likely).")
-                return False
-
-            # HTML extraction path: an HTML target, or --html-fallback on a
-            # PDF target that could not be downloaded.
-            out = output_path[:-4] + ".md" if output_path.endswith(".pdf") else output_path
-            html = page.evaluate(
-                "document.querySelector('main') "
-                "? document.querySelector('main').outerHTML "
-                ": document.body.outerHTML"
-            )
-            with open(out, "w", encoding="utf-8") as f:
-                f.write(md(html))
-            print(f"      Success! Page extracted to {out} (Markdown).")
-            return True
-    except _CamoufoxTimeout:
-        print("      camoufox: timed out after 90s.")
-        return False
-    except Exception as e:
-        print(f"      Error: {e}")
-        return False
-    finally:
-        signal.alarm(prev_alarm)
-        signal.signal(signal.SIGALRM, prev_handler)
+def run(args):
+    attempts = []
+    steps = [('curl-cffi', lambda: attempt_tls_impersonation_download(args.url, args.output))]
+    if not args.skip_wayback:
+        steps.append(('wayback', lambda: attempt_archive_snapshot(args.url, args.output)))
+    steps.append(('camoufox', lambda: attempt_antidetect_browser(args.url, args.output)))
+    if args.rendered_pdf:
+        steps.append(('browser-cdp', lambda: attempt_rendered_pdf(args.url, args.output)))
+    # Exhaust native-document paths before accepting a Markdown substitute.
+    if args.html_fallback and Path(args.output).suffix.lower() == '.pdf':
+        if not args.skip_wayback:
+            steps.append(('wayback-markdown', lambda: attempt_archive_snapshot(args.url, args.output, True)))
+        steps.append(('camoufox-markdown', lambda: attempt_antidetect_browser(args.url, args.output, True)))
+    for method, operation in steps:
+        log(f'Trying {method}')
+        try:
+            value = operation()
+            value['attempts'] = attempts + [{'method': method, 'status': 'success'}]
+            return value
+        except Exception as error:
+            attempts.append({'method': method, 'status': 'failed', 'error': str(error)})
+            log(f'{method}: {error}')
+    return result('failed', input_url=args.url, attempts=attempts,
+                  error='No acceptable document retrieved. Inspect attempt errors; '
+                        'use authenticated-fetch for a known login or interactive challenge.')
 
 
 def main():
-    # Show tier-by-tier progress promptly when stdout is piped/backgrounded.
-    sys.stdout.reconfigure(line_buffering=True)
-    parser = argparse.ArgumentParser(
-        description="Robustly fetch web source material: "
-                    "curl-cffi -> Wayback -> rendered PDF -> camoufox.")
-    parser.add_argument("url", help="URL to fetch")
-    parser.add_argument("output", help="Output file path")
-    parser.add_argument(
-        "--html-fallback", action="store_true",
-        help="If the PDF can't be retrieved, accept a Markdown rendering of "
-             "the page (writes .md) instead of failing. Honored by both the "
-             "Wayback tier and the camoufox tier.")
-    parser.add_argument(
-        "--skip-wayback", action="store_true",
-        help="Skip the Wayback tier. Use for JS-rendered SPAs whose archive "
-             "snapshots capture only the SSR loading shell.")
-    parser.add_argument(
-        "--skip-rendered-pdf", "--skip-print-pdf",
-        action="store_true",
-        dest="skip_rendered_pdf",
-        help="Skip the rendered-PDF tier. Use when you specifically want the "
-             "origin file (not a rendered page) and only the anti-detect tier "
-             "should attempt the live origin. --skip-print-pdf is accepted as "
-             "a backward-compatible alias.")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('url')
+    parser.add_argument('output')
+    parser.add_argument('--html-fallback', action='store_true')
+    parser.add_argument('--skip-wayback', action='store_true')
+    rendering = parser.add_mutually_exclusive_group()
+    rendering.add_argument('--rendered-pdf', action='store_true', help='Allow a screened web-page print after original-file attempts fail')
+    rendering.add_argument('--skip-rendered-pdf', '--skip-print-pdf', action='store_true', help='Compatibility alias: rendering is already off by default')
+    parser.add_argument('--json', action='store_true', help='One result object on stdout; progress goes to stderr')
+    parser.add_argument('--camoufox-worker', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
-
-    if attempt_tls_impersonation_download(args.url, args.output):
-        return
-    if not args.skip_wayback and attempt_archive_snapshot(
-        args.url, args.output, args.html_fallback,
-    ):
-        return
-    if not args.skip_rendered_pdf and attempt_rendered_pdf(
-        args.url, args.output,
-    ):
-        return
-    if attempt_antidetect_browser(args.url, args.output, args.html_fallback):
-        return
-
-    assisted = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "assisted.py")
-    print("\nAll automated tiers failed — the block is an interactive CAPTCHA, "
-          "a login/subscription wall, or an IP-reputation gate that no "
-          "unattended tier can pass.\n"
-          "\nNEXT STEP — Tier 5 (user-assisted browser). A human can clear this "
-          "in seconds; the agent downloads afterward over the same session. It "
-          "is fine to ask the user to solve the CAPTCHA / log in:\n"
-          f"  uv run {assisted} launch\n"
-          f"  uv run {assisted} open \"{args.url}\"\n"
-          "      # ↑ user solves the CAPTCHA / logs in once in the visible window\n"
-          f"  uv run {assisted} save \"{args.url}\" \"{args.output}\"\n"
-          "      # (use `pdflink`/`merge` first if the target PDF is behind a link)\n"
-          "\nLast resorts if no human is available: a paid Web Unlocker "
-          "(ZenRows/ScrapFly/Bright Data), or a manual Internet Archive search.",
-          file=sys.stderr)
-    sys.exit(1)
+    if args.camoufox_worker:
+        try:
+            from contextlib import redirect_stdout
+            with redirect_stdout(sys.stderr):
+                value = camoufox_worker(args.url, args.output, args.html_fallback)
+        except Exception as error:
+            log(str(error))
+            return 1
+    else:
+        value = run(args)
+    emit(value, args.json)
+    return 0 if value['status'] == 'success' else 1
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    raise SystemExit(main())

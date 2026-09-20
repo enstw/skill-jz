@@ -9,7 +9,8 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 - `init-agents/SKILL.md` — initialize a directory with AI-agnostic agent context (`AGENTS.md` canonical + pointers from agent-specific instruction files). Description-triggered, so no slash collision with the built-in `/init`.
 - `recommend/SKILL.md` — pause and surface direction-level recommendations or refactors. Slash `/recommend` plus self-triggers on drift signals.
 - `self-evaluate/SKILL.md` — estimate PDCA loops remaining before the work is finished. Cost-driven, phase-agnostic. Investigates (code/env/smoke/web) before estimating. Slash `/self-evaluate`.
-- `robust-web-fetch/SKILL.md` — fetch web source material when ordinary fetch tools are insufficient: PDFs, HTML, text, rendered pages, archived copies, and CDN-blocked sources. Description-triggered.
+- `robust-web-fetch/SKILL.md` — unattended known-URL retrieval, validation, atomic output, and JSON provenance; page printing is opt-in. Shared output helpers also support authenticated-fetch.
+- `authenticated-fetch/SKILL.md` — EZproxy and institutional login through persistent visible browser sessions; validated downloads and chapter merging. Depends on browser-cdp lifecycle and robust-web-fetch validation. Legacy robust-web-fetch/scripts/assisted.py forwards here.
 - `pdf-to-markdown/SKILL.md` — convert any PDF (born-digital, scanned, or mixed) to Markdown; covers extract/convert/OCR/cite asks and explicitly preempts ad-hoc pymupdf scripts. Self-contained: bundles `pdf2md.py` (tiered pymupdf4llm → raw text → OCR pipeline) as the cheap default plus a page-combine helper, and falls back to vision transcription when the text layer is unrecoverable. Description-triggered. (Renamed from `transcribe-pdf`.)
 - `genimage-img2/SKILL.md` — generate or edit ONE image with gpt-image-2 via the Codex CLI. Bundles `gen-image.sh`: binary+auth gate, timeout wrapper, and the shared renderer contract (`gen-image.sh "<prompt>" <out.png> "<size>"` → `IMAGE_OK <path>` / `IMAGE_FAIL <reason>`) that deck/batch workflows loop over. Pre-condition: `codex` installed + `codex login`. Slash `/genimage-img2`.
 - `genimage-nb/SKILL.md` — generate ONE image with nano banana (Gemini) via the agy CLI; `gen-image.sh` honors the same contract as genimage-img2 (drop-in interchangeable). Encodes agy's probed quirks: scratch-dir cwd (absolute cp target), JPEG artifacts (`sips` → PNG), stdout held open by lingering children (redirect, never pipe). Pre-condition: `agy` installed + logged in. Slash `/genimage-nb`.
@@ -33,7 +34,7 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 
 ## Layout
 
-- `flush/`, `sync/`, `init-agents/`, `init-machine/`, `recommend/`, `self-evaluate/`, `robust-web-fetch/`, `pdf-to-markdown/`, `browser-cdp/`, `browser-e2e/`, `genimage-img2/`, `genimage-nb/`, `genimage-canvas/`, `yt2sub/`, `repo-publish/`, `send-file/`, `tui-drive/`, ... — one folder per skill.
+- `flush/`, `sync/`, `init-agents/`, `init-machine/`, `recommend/`, `self-evaluate/`, `robust-web-fetch/`, `authenticated-fetch/`, `pdf-to-markdown/`, `browser-cdp/`, `browser-e2e/`, `genimage-img2/`, `genimage-nb/`, `genimage-canvas/`, `yt2sub/`, `repo-publish/`, `send-file/`, `tui-drive/`, ... — one folder per skill.
 - `README.md` — outward-facing description and install instructions.
 - `AGENTS.md` — this file (orientation for any agent working on the repo).
 - `SKILLS-CLI.md` — how this repo stays compatible with the agent-agnostic `skills` CLI (agentskills.dev); re-verify with `npx -y skills add enstw/skill-jz -l` after structural changes.
@@ -42,3 +43,12 @@ Personal collection of AI-agent skills. One folder per skill; each `SKILL.md` is
 ## Install
 
 See `README.md` for the AI-agnostic installation prompts. To install one skill, symlink its folder into the agent's global-skills directory. To install the full collection, symlink every top-level folder that contains a `SKILL.md`, replacing stale symlinks but not real directories or files without confirmation.
+
+## Fetch regression checks
+
+- Offline behavior suite: `uv run --with pypdf --with markdownify --with playwright --with curl-cffi python -m unittest discover -s tests -p 'test_fetch.py' -v`. Fixtures verify preservation on failure, full/partial chapter handling, content screening, provenance, and default routing.
+- Self-contained browser integration: `uv run --with pypdf --with markdownify --with playwright --with curl-cffi python tests/fetch_browser_e2e.py`. It serves invented documents on loopback, uses the browser-cdp runtime, and verifies cookies across separate commands, disconnect/reconnect, profile ownership, atomic failures, chapter merges, and explicit printing. Requires Node 22+ and a working Chromium. No real account is used.
+- Hosted EZproxy and publisher behavior requires a separate user-assisted check; local fixtures do not establish current publisher compatibility.
+- Browser transport smoke: `node tests/browser_session_e2e.mjs` opens an isolated visible browser and verifies attachment, disconnect, owned cleanup, and occupied-port refusal. Add `--headless` where a display is unavailable.
+
+Verified 2026-09-20: 17 offline acquisition regressions, the loopback publisher browser suite, and the visible-browser transport smoke passed on macOS/Brave. `pnpm dlx skills add . --list` discovered 18 skills, including authenticated-fetch. No real institutional account or publisher entitlement was tested.

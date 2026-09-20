@@ -21,7 +21,7 @@ import { statSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-export function findBrowser() {
+export function findBrowser({ headed = false } = {}) {
   const isFile = (p) => { try { return statSync(p).isFile(); } catch { return false; } };
   const ls = (dir) => { try { return readdirSync(dir); } catch { return []; } };
   const env = { ...process.env };
@@ -29,13 +29,20 @@ export function findBrowser() {
   const known =
     process.env.BROWSER_BIN ??
     [
-      join(homedir(), ".cache", "headless-chromium", "chrome"),
+      ...(!headed ? [join(homedir(), ".cache", "headless-chromium", "chrome")] : []),
       "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Chromium.app/Contents/MacOS/Chromium",
+      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
       "/usr/bin/chromium",
       "/usr/bin/google-chrome",
+      "/usr/bin/chromium-browser",
+      "/usr/bin/brave-browser",
+      "/usr/bin/microsoft-edge",
     ].find(isFile);
   if (known) return { bin: known, env };
+
+  if (headed) throw new Error("No desktop Chromium found; set BROWSER_BIN to Chrome, Brave, Chromium, or Edge. Headless-shell cannot show a login window.");
 
   const pw = join(homedir(), ".cache", "ms-playwright");
   const shell = ls(pw)

@@ -1,19 +1,12 @@
 ---
 name: browser-cdp
 description: >-
-  The one entry point for browser work. Use whenever asked to open or browse
-  a page; test, QA, or dogfood a browser app; navigate, click, fill, upload,
-  assert, or compare UI state; capture screenshots or responsive layouts;
-  inspect DOM, CSS, console, or network activity; automate a browser, run page
-  JS, print to PDF, emulate devices, scrape an interactive app; or provision
-  Chromium. It routes stateful interaction through the installed gstack browse
-  daemon, one-shot rendering through that daemon or hardened shot.sh, and
-  repeatable scripts through bundled zero-dependency CDP templates. Do not
-  invoke a separate browser skill, hand-roll headless flags or a CDP client,
-  npm-install puppeteer/playwright by default, or sudo-install Chromium: this
-  skill owns backend selection, provisioning, interaction, capture, and
-  teardown. For reusable e2e suites, browser-e2e layers its test method on
-  these templates.
+  Provides the entry point for browser interaction, UI testing, screenshots,
+  page inspection, PDF rendering, persistent visible login sessions, and
+  Chromium provisioning. Selects an available daemon or bundled standalone
+  CDP tools without requiring gstack. Use for browser work instead of ad-hoc
+  headless commands or a new CDP client; owns discovery, connection, capture,
+  and cleanup. Browser-e2e adds reusable test methodology on these primitives.
 user-invocable: true
 ---
 
@@ -26,7 +19,7 @@ uses the bundled plain-node CDP templates. No test framework, no npm
 dependency, no root, and no competing Chromium process when the shared daemon
 already fits the task.
 
-Four capabilities, pick by task:
+Five capabilities, pick by task:
 
 1. **Explore or QA a live page** (navigate, click, fill, assert, diff,
    console/network inspection, responsive checks) → installed gstack daemon.
@@ -35,6 +28,8 @@ Four capabilities, pick by task:
 1. **Build repeatable automation** (project scripts, CI, PDF, emulation,
    multi-step scraping) →
    copy `templates/find-browser.mjs` + `templates/cdp-client.mjs`.
+1. **Persistent visible login session** → `scripts/session.mjs`, backed by the
+   same CDP client; see the authenticated-session section below.
 1. **No usable browser on the box** → `scripts/provision.sh` (idempotent,
    user-space, no root).
 
@@ -57,12 +52,15 @@ Then route by the intended artifact:
 | Open, test, QA, or dogfood a page; click/fill/assert; inspect console/network; compare before/after; preserve cookies or tabs | `USE_DAEMON` → `$B` |
 | Screenshot, rendered DOM, or local HTML/SVG visual QA | `USE_DAEMON` → `$B`; `USE_FALLBACK` → `scripts/shot.sh` |
 | Reusable project automation or CI script | bundled `templates/find-browser.mjs` + `templates/cdp-client.mjs`, even when `$B` exists |
+| Persistent visible login or authenticated downloads | `scripts/session.mjs`; use the dedicated profile and port, independent of gstack |
 | Reusable e2e test suite | sibling `browser-e2e`, which uses these client templates |
 | No gstack and no usable Chromium | `scripts/provision.sh`, then the fallback or templates |
 
 `USE_DAEMON` means the installed gstack binary is a backend of this skill:
-do not separately invoke another browser skill and do not start a second
-Chromium. `USE_FALLBACK` means gstack is absent; do not install it merely to
+do not separately invoke another browser skill or start a competing Chromium
+for that daemon task. Dedicated authenticated sessions use the explicit
+profile/port route below, because the operator needs a visible persistent login.
+`USE_FALLBACK` means gstack is absent; do not install it merely to
 finish a screenshot or scripted task.
 
 ## Interactive browsing and QA (`$B`)
@@ -121,7 +119,8 @@ Learned-the-hard-way specifics:
    `$B responsive`, read the output PNG so the user can see it.
 1. **Etiquette**: never `$B stop`/`restart`/`disconnect` (the daemon may
    hold other work's tabs and logged-in sessions); don't pass `--headed` or
-   `--proxy`; don't ship a second Chromium next to it.
+   `--proxy` to the daemon. Use the dedicated-session route for visible logins,
+   leaving the daemon and its tabs intact.
 
 ## One-shot rendering fallback: `scripts/shot.sh`
 
@@ -191,6 +190,40 @@ await close();                                           // kills the browser
 For e2e *test suites* (verdict contract, suite taxonomy, service-worker
 offline rules), use the **browser-e2e** skill — it builds on these templates.
 
+## Persistent authenticated sessions and printing
+
+`node scripts/session.mjs` is the lifecycle entry point for fetch skills. It
+uses the existing browser discovery and CDP transport, and does not require
+gstack. Node 22+ is required.
+
+```bash
+node <skill>/scripts/session.mjs launch --port 18222 --profile <dedicated-profile>
+node <skill>/scripts/session.mjs stop --port 18222 --profile <dedicated-profile>
+node <skill>/scripts/session.mjs render --url <url> --out <scratch.pdf>
+```
+
+`launch` defaults to a visible desktop browser; `--headless` is for fixture
+tests. It leaves the browser running after the command returns. `stop` checks
+the profile before closing that browser and retains the profile on disk.
+An occupied port with a different profile fails rather than reusing another
+job's session. Never choose the user's normal browser profile, because this
+session is controlled through CDP.
+
+For programmatic clients, `launch({headed: true, persistent: true, ...})`
+returns `disconnect()` in addition to the existing methods. Use `disconnect()`
+to leave browser and tabs alive; `close()` stops an owned browser. Exported
+`connect({port, targetId})` attaches to an existing tab; without `targetId` it
+creates a tab. `connect({port, createTarget: false})` connects only at browser
+level. Its `close()` closes only a tab the client created, never an attached
+browser; `disconnect()` preserves all tabs.
+
+`render` owns an ephemeral headless browser and removes its profile when done.
+It returns JSON containing the final URL and DOM alongside the scratch PDF.
+The caller must screen that DOM and validate the artifact before publishing
+it, because a browser can print a login or challenge page into a valid PDF.
+These are acquisition mechanics; identity and claim support remain the
+source-audit workflow's responsibility.
+
 ## No usable browser? Provision one
 
 ```sh
@@ -224,10 +257,13 @@ discovery finds the wrapper from then on with zero env setup.
   real browser profile.
 - **Unique CDP port per script** so concurrent jobs coexist.
 - **Always `close()`** (and kill on error paths) — a leaked headless
-  Chromium is invisible and eats memory forever.
-- **Nothing installed globally**: the only disk footprint is
-  `~/.cache/ms-playwright/` and/or `~/.cache/headless-chromium/`, both
-  plain-deletable.
+  Chromium is invisible and eats memory forever. Persistent login sessions
+  deliberately use `disconnect()` and remain visible until the user or an
+  explicit `stop` ends them.
+- **Nothing installed globally**: browser downloads live in
+  `~/.cache/ms-playwright/` and/or `~/.cache/headless-chromium/`. Persistent
+  sessions also retain their explicitly selected profile, because it holds
+  the login state; ephemeral jobs remove their scratch profile.
 
 ## Traps
 
