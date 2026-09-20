@@ -72,6 +72,8 @@ Prefer existing project files; create a new one only when useful state has no ex
 - `README.md`: user-facing usage, install, or description updates.
 - `docs/` or ADRs: design rationale future contributors need.
 
+When a thesisbug2 course unit has explicitly enabled its experimental JSON workflow, route handoff facts through the available `fw todo`, `fw decision`, and `fw workflow context` commands, then run its handoff check. Check command help and current revisions first; these interfaces may evolve. Tasks receive open work, decisions receive effective rules and their reasons, and context receives the current stage and blockers. Keep code, substantial design explanations, and evidence in their existing files and reference them. Generated status Markdown is a view, not another hand-written handoff. Do not import raw session transcripts or memory dumps: only facts worth carrying forward belong in the state. The JSON source and necessary revisions must be included in the commit before clearing any migrated memory entry. This route does not enable or migrate units automatically; other projects retain their existing storage.
+
 ## 4. Commit And Push
 
 Invoking `/flush` authorizes committing and pushing the handoff.
