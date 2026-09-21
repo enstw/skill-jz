@@ -7,8 +7,10 @@ import argparse
 import io
 import json
 import os
+import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -29,6 +31,8 @@ from fetch_common import atomic_write, emit, pdf_pages, resolve_skill, result
 
 DEFAULT_PORT = 18222
 DEFAULT_PROFILE = Path.home() / '.cache' / 'assisted-fetch-profile'
+DEFAULT_SITES = Path.home() / '.config' / 'authenticated-fetch' / 'sites'
+RECIPE_KEYS = ('entry', 'credentials', 'user_key', 'pass_key', 'user', 'password', 'submit', 'success_url')
 
 
 def browser_command(args, command):
@@ -81,6 +85,109 @@ def cmd_pdflink(args):
         })).filter(l => /pdf|download|epdf|fulltext/i.test(l.href + ' ' + l.text))''')
         unique = {link['href']: link for link in links}
         return result('success', method='pdflink', final_url=page.url, links=list(unique.values()))
+    return with_context(args, go)
+
+
+def load_recipe(args):
+    if not re.fullmatch(r'[A-Za-z0-9_-]+', args.site):
+        raise ValueError('Site names use letters, digits, "-" and "_" only')
+    path = Path(args.sites).expanduser() / f'{args.site}.json'
+    if not path.is_file():
+        known = ', '.join(sorted(item.stem for item in path.parent.glob('*.json'))) or 'none'
+        raise ValueError(f'No login recipe at {path} (available: {known}); see references/login-recipes.md')
+    recipe = json.loads(path.read_text(encoding='utf-8'))
+    missing = [key for key in RECIPE_KEYS if not recipe.get(key)]
+    if missing:
+        raise ValueError(f'Recipe {path} lacks: {", ".join(missing)}')
+    return recipe
+
+
+def read_credentials(recipe):
+    path = Path(recipe['credentials']).expanduser()
+    keys = (recipe['user_key'], recipe['pass_key'])
+    manual = 'or sign in by hand in the open window'
+    if not path.exists():
+        # Leave an empty template so the user only types two values; O_EXCL never
+        # overwrites, and the mode is set at creation rather than after a window.
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w', encoding='utf-8') as file:
+            file.write(f'# SECRET. Keep mode 600; never print, paste, or commit.\n{keys[0]}=\n{keys[1]}=\n')
+        raise ValueError(f'Created an empty credential file at {path}; fill {keys[0]} and {keys[1]}, {manual}')
+    if not path.is_file():
+        raise ValueError(f'{path} is not a regular file')
+    if path.stat().st_mode & 0o077:
+        raise ValueError(f'{path} is readable by other accounts; run chmod 600 on it, {manual}')
+    values = dict(line.split('=', 1) for line in path.read_text(encoding='utf-8').splitlines()
+                  if '=' in line and not line.lstrip().startswith('#'))
+    found = tuple(values.get(key, '').strip() for key in keys)
+    if not all(found):
+        raise ValueError(f'{path} has an empty {keys[0]} or {keys[1]}; fill it, {manual}')
+    return found
+
+
+def cmd_login(args):
+    from playwright.sync_api import Error as BrowserError
+    recipe = load_recipe(args)
+    target = args.url or recipe.get('default_url', '')
+    done = re.compile(recipe['success_url'])
+
+    def bare(page):
+        # Ask the live document: over a CDP attachment page.url can stay at the form's
+        # POST address after a cross-site redirect chain. A gateway carries the target
+        # in its query (?url=...), which would satisfy success_url before sign-in, and
+        # ;jsessionid= path parameters are session tokens; neither belongs in a result.
+        try:
+            url = page.evaluate('location.href')
+        except BrowserError:
+            url = page.url
+        parts = urlsplit(url)
+        path = '/'.join(segment.split(';')[0] for segment in parts.path.split('/'))
+        return urlunsplit(parts._replace(path=path, query='', fragment=''))
+
+    def reached(page, seconds, form=False):
+        # Redirect chains detach frames mid-poll, so a browser error means "look again".
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            try:
+                if done.search(bare(page)):
+                    return 'done'
+                if form and page.locator(recipe['user']).first.is_visible():
+                    return 'form'
+                for selector in recipe.get('dismiss', []) if form else []:
+                    if page.locator(selector).first.is_visible():
+                        page.locator(selector).first.click()
+            except BrowserError:
+                pass
+            time.sleep(0.3)
+        return None
+
+    def go(ctx):
+        page = ctx.new_page()
+        page.goto(recipe['entry'].replace('{url}', target), wait_until='domcontentloaded', timeout=45000)
+        state = reached(page, 30, form=True)
+        if state is None:
+            raise RuntimeError('Neither the login form nor the signed-in site appeared; '
+                               'finish in the open window')
+        if state == 'form':
+            user, password = read_credentials(recipe)
+            if recipe.get('ready'):
+                page.wait_for_function(recipe['ready'], timeout=15000)
+            try:
+                page.locator(recipe['user']).first.fill(user)
+                page.locator(recipe['password']).first.fill(password)
+            except BrowserError:
+                # Browser call logs can echo the filled value; never chain them.
+                raise RuntimeError('Could not fill the login form; sign in by hand in the open window') from None
+            # One submit per invocation. A retry loop here could lock the account.
+            page.locator(recipe['submit']).first.click()
+            if reached(page, float(recipe.get('wait', 60))) is None:
+                raise RuntimeError(f'Stalled at {bare(page)} ({page.title()!r}) after one submit, which '
+                                   'was not retried. Check the credential file, or finish in the open window')
+        final, title = bare(page), page.title()
+        if state == 'done':
+            page.close()  # nothing new to show; routine session checks must not pile up tabs
+        return result('success', input_url=target, final_url=final, method='login', site=args.site,
+                      title=title, login_verified=True, already_authenticated=state == 'done')
     return with_context(args, go)
 
 
@@ -170,6 +277,11 @@ def main(argv=None):
     command = sub.add_parser('open')
     command.add_argument('url')
     command.set_defaults(fn=cmd_open)
+    command = sub.add_parser('login')
+    command.add_argument('site', help='Recipe name: <sites>/<site>.json')
+    command.add_argument('url', nargs='?', help='One target URL; defaults to the recipe default_url')
+    command.add_argument('--sites', default=str(DEFAULT_SITES), help='Recipe directory')
+    command.set_defaults(fn=cmd_login)
     sub.add_parser('status').set_defaults(fn=cmd_status)
     command = sub.add_parser('pdflink')
     command.add_argument('substr', nargs='?')

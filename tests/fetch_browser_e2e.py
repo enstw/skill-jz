@@ -11,6 +11,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs
 
 from pypdf import PdfReader, PdfWriter
 
@@ -29,12 +30,46 @@ def make_pdf(width):
 
 
 class Publisher(BaseHTTPRequestHandler):
+    submits = 0
+
     def log_message(self, *args):
         pass
 
+    def do_POST(self):
+        # Invented SSO: accepts one reader, and needs the code the form page fills in itself.
+        Publisher.submits += 1
+        form = parse_qs(self.rfile.read(int(self.headers.get('Content-Length', 0))).decode())
+        good = (form.get('u'), form.get('p'), form.get('code')) == (['reader'], ['fixture-pass'], ['42'])
+        # Like a real SSO, the form lives on another origin (localhost) and hands back a ticket.
+        home = f'http://127.0.0.1:{self.server.server_port}'
+        self.send_response(303)
+        self.send_header('Location', home + '/sso/return?ticket=T' if good else '/sso/form;jsessionid=abc')
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
     def do_GET(self):
         code, kind, cookie = 200, 'text/html', None
-        if self.path == '/login':
+        signed_in = 'sso=ok' in self.headers.get('Cookie', '')
+        ticket = self.path == '/sso/return?ticket=T'
+        if ticket or (self.path.startswith('/sso/gate') and signed_in):
+            self.send_response(302)
+            self.send_header('Location', '/account')
+            if ticket:
+                self.send_header('Set-Cookie', 'sso=ok; HttpOnly; Path=/')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
+        if self.path.startswith('/sso/gate'):
+            body = (f'<title>Terms</title><button id="ok" onclick="location.href='
+                    f"'http://localhost:{self.server.server_port}/sso/form'" + '">OK</button>').encode()
+        elif self.path.startswith('/sso/form'):
+            body = (b'<title>Sign in</title><form method="post" action="/sso/auth"><input id="u" name="u">'
+                    b'<input id="p" name="p" type="password"><input id="code" name="code" type="hidden">'
+                    b'<button id="go">Sign in</button></form>'
+                    b'<script>setTimeout(() => { document.getElementById("code").value = "42"; }, 400)</script>')
+        elif self.path == '/account':
+            body = b'<title>Signed in</title>' if signed_in else b'<title>Sign in</title>'
+        elif self.path == '/login':
             cookie = 'library=fixture; Max-Age=3600; HttpOnly; Path=/'
             body = b'<title>Library session ready</title><a href="/pdf/1">PDF chapter 1</a><a href="/pdf/2">PDF chapter 2</a>'
         elif self.path == '/public.pdf':
@@ -82,6 +117,7 @@ def main():
         def command(*args, expected=0):
             child = subprocess.run([sys.executable, str(AUTH), '--json', '--port', str(port), *map(str, args)],
                                    capture_output=True, text=True, timeout=60)
+            command.raw = child.stdout + child.stderr
             check('command_' + str(args[0]) + '_' + str(len(out)), child.returncode == expected, child.stderr or child.stdout)
             return json.loads(child.stdout)
 
@@ -121,6 +157,40 @@ def main():
             check('missing_chapter_preserves_existing', target.read_bytes() == complete and value['missing'], value)
             value = command('merge', target, origin + '/pdf/1', origin + '/missing', '--allow-partial', expected=3)
             check('partial_explicit_status', value['status'] == 'partial' and not value['complete'] and len(PdfReader(target).pages) == 1, value)
+
+            sites = directory / 'sites'
+            sites.mkdir()
+            secrets = {'open': 'fixture-pass', 'wrong': 'not-the-pass', 'good': 'fixture-pass'}
+            for name, secret in secrets.items():
+                (directory / name).write_text(f'# comment\nFX_USER=reader\nFX_PASS={secret}\n')
+                (directory / name).chmod(0o644 if name == 'open' else 0o600)
+                (sites / f'{name}.json').write_text(json.dumps({
+                    'entry': origin + '/sso/gate?url={url}', 'default_url': origin + '/account',
+                    'credentials': str(directory / name), 'user_key': 'FX_USER', 'pass_key': 'FX_PASS',
+                    'dismiss': ['#ok'], 'user': '#u', 'password': '#p', 'submit': '#go',
+                    'ready': 'document.getElementById("code").value !== ""', 'success_url': '/account$',
+                    'wait': 5}))
+            command('login', 'absent', '--sites', sites, expected=1)
+            fresh = directory / 'vault' / 'fresh'
+            recipe = json.loads((sites / 'good.json').read_text())
+            (sites / 'fresh.json').write_text(json.dumps({**recipe, 'credentials': str(fresh)}))
+            value = command('login', 'fresh', '--sites', sites, expected=1)
+            check('login_creates_empty_private_template', fresh.stat().st_mode & 0o777 == 0o600
+                  and 'FX_USER=\nFX_PASS=\n' in fresh.read_text() and Publisher.submits == 0, value)
+            value = command('login', 'fresh', '--sites', sites, expected=1)
+            check('login_reports_unfilled_template', 'empty FX_USER' in value['error'] and Publisher.submits == 0, value)
+            value = command('login', 'open', '--sites', sites, expected=1)
+            check('login_refuses_shared_credential_file', 'chmod 600' in value['error'] and Publisher.submits == 0, value)
+            value = command('login', 'wrong', '--sites', sites, expected=1)
+            check('login_single_submit_on_rejection', Publisher.submits == 1 and 'not retried' in value['error']
+                  and '/sso/form' in value['error'] and 'jsessionid' not in value['error'], value)
+            check('login_failure_hides_secret', 'not-the-pass' not in command.raw, 'secret echoed')
+            value = command('login', 'good', '--sites', sites)
+            check('login_fills_after_dismiss_and_ready', value['login_verified'] and not value['already_authenticated']
+                  and value['final_url'] == origin + '/account' and Publisher.submits == 2, value)
+            check('login_success_hides_secret', 'fixture-pass' not in command.raw, 'secret echoed')
+            value = command('login', 'good', '--sites', sites)
+            check('login_reuses_live_session', value['already_authenticated'] and Publisher.submits == 2, value)
 
             command('stop', '--profile', profile)
             launched = False

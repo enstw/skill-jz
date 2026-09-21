@@ -4,16 +4,20 @@ description: >-
   Retrieves PDFs through a user-authenticated browser session, including
   library EZproxy, institutional subscriptions, and interactive challenges.
   Opens a persistent visible login window, then discovers and downloads PDF
-  links with the same cookies. Validates files and merges chapter PDFs with
-  explicit missing-chapter results. Use when human login or existing library
-  access is required; depends on browser-cdp and robust-web-fetch.
+  links with the same cookies. Signs in from a credential file the user stored
+  when a site recipe exists, otherwise the user signs in by hand. Validates
+  files and merges chapter PDFs with explicit missing-chapter results. Use when
+  login or existing library access is required, instead of scripting a login
+  form; depends on browser-cdp and robust-web-fetch.
 ---
 
 # Authenticated Fetch
 
 The user signs in through a visible browser; the agent continues in that same
-session. Credentials stay in the dedicated browser profile, because scripts
-should not need the user's password or normal browser profile.
+session, never in the user's normal browser profile. By default the agent never
+handles a password. The one exception is `login`, for a site whose recipe and
+credential file the user set up in their own account: the script reads that
+file in-process, and the value reaches neither a command line nor any output.
 
 Requires `uv`, Node 22+, **browser-cdp**, and **robust-web-fetch**. The latter
 provides shared validation and result helpers without running its unattended
@@ -50,6 +54,39 @@ uv run <skill>/scripts/assisted.py stop
 Stop checks profile ownership before closing the browser; it retains the
 profile for a later login. `launch --headless` exists for fixture testing;
 use the default visible window when a person must log in.
+
+## Stored-credential login
+
+```bash
+uv run <skill>/scripts/assisted.py launch
+uv run <skill>/scripts/assisted.py login <site> ["<one-target-url>"] --json
+```
+
+When the task names a site recipe, or the project records one beside its
+library proxy, run `login` after `launch` in place of `open` plus a hand
+sign-in. A missing recipe lists the ones that exist. Recipe format and the
+credential file: [references/login-recipes.md](references/login-recipes.md).
+
+- `already_authenticated: true` means the session was still valid and no
+  credential was read. Session cookies in the dedicated profile can outlive a
+  browser restart, so run `login` first and sign in only when it says so.
+- **On any failure, relay the error and offer both routes:** the user fills the
+  credential file in their own editor (`login` creates the empty mode-600
+  template when it is missing), or signs in by hand in the window, which
+  `login` leaves parked where it stopped. Continue with `status` once they say
+  it is done.
+- **Never ask for, accept, or repeat a password in conversation**, and never
+  read or print the credential file. The file and the visible window are the
+  only two routes.
+- **Re-run `login` at most once, and only after the user says the cause is
+  fixed.** It submits once per invocation because repeated bad submits can lock
+  the account; a loop around it defeats that.
+- `login` takes one target URL. Library terms commonly prohibit systematic or
+  bulk downloading and automated download software, so this skill retrieves
+  individually named sources the user asked for, one `save` or `merge` at a
+  time, and is not to be wrapped in a crawl, a batch over search results, or a
+  schedule. When a gateway shows usage terms the user has not yet seen, show
+  them the text before the first `login`.
 
 An open page or `status` response does not prove authentication. Confirm that
 the requested title is accessible. If it says “Get access” or the institution
