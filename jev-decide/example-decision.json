@@ -1,0 +1,33 @@
+{
+  "state": {
+    "goal": "Ship offline support for a note-taking PWA: notes created offline must sync once the network returns.",
+    "done": [
+      "Service worker caches the app shell; the app opens offline (e2e-verified).",
+      "Notes are stored in IndexedDB; create/edit works offline (unit-tested)."
+    ],
+    "blocked": "Conflict resolution needs a server-side revision field the backend does not expose yet (backend change pending review).",
+    "constraints": ["No new runtime dependencies.", "Every change must keep the existing e2e suite green."]
+  },
+  "decision": {
+    "instructions": "Choose the single best NEXT step toward the goal that does not depend on the pending backend change. Each option lists what it is plus pros AND cons — weigh the trade-off.",
+    "irreversible": false,
+    "options": {
+      "outbox_queue": {
+        "what": "Add an IndexedDB outbox that records offline writes and replays them in order when online (last-write-wins until revisions exist).",
+        "pros": "Makes offline writes reach the server at all — the core of the goal; testable today with the dead-server e2e pattern.",
+        "cons": "Last-write-wins can overwrite a concurrent edit until the revision field lands."
+      },
+      "offline_indicator": {
+        "what": "Show an offline banner and per-note 'unsynced' badges.",
+        "pros": "Small, safe, user-visible; honest about sync state.",
+        "cons": "Cosmetic — no note reaches the server any sooner."
+      },
+      "wait_for_backend": {
+        "what": "Pause offline work until the backend exposes revisions, then build sync with conflict resolution in one pass.",
+        "pros": "Avoids building last-write-wins twice.",
+        "cons": "Idle time; the outbox is needed either way and does not depend on revisions."
+      }
+    }
+  },
+  "thresholds": { "minConfidence": 0.6, "minMargin": 0.15 }
+}
