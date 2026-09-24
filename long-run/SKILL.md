@@ -29,7 +29,8 @@ Instructions alone did not prevent any of these. This skill therefore has two la
 
 1. **Find the goal and the queue.** The project's `AGENTS.md` should name both — look for a *Goal* section and a `Work queue:` line (a file such as `docs/tickets.md` / `TODO.md`, or an issue tracker). If it doesn't, use the obvious file (`TODO.md`, `docs/tickets.md`, open issues); if none exists, write the queue yourself from the goal into `TODO.md` before starting. Ask the user at most once, and only when the goal itself is unknown.
 1. **Collect standing authorizations.** Read `AGENTS.md` and the conversation for pre-granted actions (e.g. "all live transactions on the test account are authorized", "you may power the VM on/off"). These are the answer to every "may I…?" you would otherwise ask. If the project has none recorded, record the ones the user gives now under an *Authorizations* heading in `AGENTS.md`.
-1. **Arm the run.** Write `.long-run` at the project root: one or two lines naming the goal and the queue. Keep it out of version control via `.git/info/exclude` (don't edit the project's `.gitignore` for it). The enforcement adapter keys off this file.
+1. **Arm the run.** If `.long-run` already exists at the project root (the arm hook wrote it from the user's prompt), it's armed. Otherwise write it: one or two lines naming the goal and the queue, kept out of version control via `.git/info/exclude` (don't edit the project's `.gitignore` for it). The enforcement adapter keys off this file.
+1. **Pre-empt permission denials.** Read the project's `.claude/settings.json` `permissions.allow`; if the run will drive a tool that a sandbox or classifier has denied before (VM driver, file staging to a share, test runner), add those patterns now — see *Enforcement*.
 1. **State the plan in two lines**: the goal, the topmost unblocked item. Then start — no confirmation question.
 
 ## The loop
@@ -81,11 +82,19 @@ A user message mid-run (a question, a correction) is answered and then the run c
 
 ## Enforcement
 
-The contract is runner-neutral; the adapter is not. `hooks/long-run-guard.sh` is the Claude Code adapter: a `Stop` hook that, while a fresh `.long-run` exists, refuses an end-of-turn whose final message lacks a valid `LONG-RUN STOP:` line and tells the agent to continue. It is installed once per machine by the `init-machine` skill and is inert in every project without a `.long-run` flag. Safety valves:
+The contract is runner-neutral; the adapters are not. Two Claude Code hooks in `hooks/`, installed once per machine by the `init-machine` skill, inert in every project without a `.long-run` flag:
+
+- **`long-run-arm.sh`** (`UserPromptSubmit`) — when the prompt contains "long run" / "長跑" (not the idiom "in the long run"), it writes the `.long-run` flag itself, git-excludes it, and injects one line telling the agent the run is armed. Enforcement therefore never depends on the agent arming it against itself; the *Arm the run* step above is the fallback when the phrase wasn't used.
+- **`long-run-guard.sh`** (`Stop`) — while a fresh `.long-run` exists, refuses an end-of-turn whose final message lacks a valid `LONG-RUN STOP:` line and re-injects the contract as the reason, so it survives compaction.
+
+Safety valves in the guard:
 
 - **Fail-open** — no `jq`, no flag, unreadable transcript → the stop is allowed.
-- **Idle brake** — after `LONG_RUN_MAX_IDLE` (default 3) refusals in a row with no new tool call, the stop is allowed; the agent is talking, not working.
+- **Idle brake** — `LONG_RUN_MAX_IDLE` (default 3) refusals in a row with no new tool call → allowed; the agent is talking, not working.
+- **Cost ceiling** — `LONG_RUN_MAX_BLOCKS` (default 40) refusals in total per session → allowed; a run that keeps circling has a hard end.
 - **Staleness** — a flag untouched for `LONG_RUN_TTL` seconds (default 12 h) is ignored, so an abandoned run never traps a later session.
-- `queue-empty` / `user-request` delete the flag.
+- `queue-empty` / `user-request` delete the flag. `user-request` is self-certified — the cheapest exit, kept on purpose so a run can always be ended.
 
-Other runners get the contract without the guard until an adapter exists for them; where a runner can re-prompt on a timer, re-issuing "continue the long run" after each turn is the crude equivalent.
+**What the guard cannot fix: permission denials.** A sandbox/classifier refusal ends the action for that turn regardless of any hook, and a run that hits one every few minutes stalls no matter how good the contract is. The fix is upstream: put the project's known-safe command patterns (its VM driver, package manager, test runner, its staging directory) in `permissions.allow` of the project's tracked `.claude/settings.json`, so those commands never reach the classifier. Do this at the start of the first long run in a project, from the denials seen so far.
+
+Other runners get the contract without the hooks until an adapter exists for them; where a runner can re-prompt on a timer, re-issuing "continue the long run" after each turn is the crude equivalent.

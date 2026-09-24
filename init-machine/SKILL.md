@@ -27,6 +27,7 @@ Replicates one user-level Claude Code environment across machines. The files bun
 | `hooks/keepawake.sh` | `~/.claude/hooks/keepawake.sh` | Lease-based sleep inhibition while the agent works |
 | `hooks/chime.sh` | `~/.claude/hooks/chime.sh` | Stop / Notification sounds, platform-appropriate player |
 | `../long-run/hooks/long-run-guard.sh` (sibling skill) | `~/.claude/hooks/long-run-guard.sh` | Refuses a premature end-of-turn during a long run; inert elsewhere |
+| `../long-run/hooks/long-run-arm.sh` (sibling skill) | `~/.claude/hooks/long-run-arm.sh` | Arms a long run when the prompt asks for one ("long run" / "長跑") |
 | — (settings fragment below) | `~/.claude/settings.json` | Wires the hooks into Claude Code events |
 
 **Out of scope:** the global `~/.claude/CLAUDE.md` standing-rules file travels through the user's own note-sync channel, not this skill. Don't create or edit it here.
@@ -35,17 +36,19 @@ How the pieces behave:
 
 - **keepawake.sh** — every hook firing restarts a bounded inhibitor (`caffeinate -is -t` on macOS, `systemd-inhibit … sleep` on Linux), so the machine stays awake until `CLAUDE_KEEPAWAKE_LEASE` seconds (default 720) past the last agent activity, then the inhibition self-expires. Idle at the prompt → machine may sleep. No unbounded resident processes. Headless Linux without `systemd-inhibit` → silent no-op.
 - **long-run-guard.sh** — the Stop-hook adapter of the `long-run` skill (canon lives there, not here). Does nothing unless the project root holds a fresh `.long-run` flag; then an end-of-turn without a valid `LONG-RUN STOP: <code>` line is refused so the agent continues. Needs `jq`; without it the guard fails open (never blocks).
+- **long-run-arm.sh** — the UserPromptSubmit adapter of the same skill: when the prompt contains "long run" / "長跑" (not the idiom "in the long run"), it writes the `.long-run` flag itself and tells the agent the run is armed — enforcement never depends on the agent arming it. Same `jq` fail-open.
 - **chime.sh** — takes `stop` or `notify`; prefers the user's own `~/.claude/sounds/<event>.wav`, falls back to a stock system sound (`afplay` on macOS, `paplay` on Linux, silent no-op when neither applies).
 
 ## Flow
 
 1. **Survey.** Read `~/.claude/settings.json` and any existing `~/.claude/hooks/*.sh`. Note what already matches the bundled canon and what differs.
-1. **Install hooks.** `mkdir -p ~/.claude/hooks`, copy the three scripts there (two bundled, one from the sibling `long-run` skill — resolve this skill's real path first, since installs are symlinks), `chmod +x`. Check `command -v jq`; if missing, tell the user the long-run guard stays inert until it's installed. If a target exists with **different** content, show the diff and confirm before overwriting — the local copy may carry a fix that belongs upstream in this skill instead.
-1. **Merge settings.** Ensure `~/.claude/settings.json` contains the six hook wirings below. **Merge, never clobber**: preserve every other key (`model`, `permissions`, other hooks, …) and don't duplicate an entry that already exists. Create the file with just `{"hooks": …}` if it's missing.
+1. **Install hooks.** `mkdir -p ~/.claude/hooks`, copy the four scripts there (two bundled, two from the sibling `long-run` skill — resolve this skill's real path first, since installs are symlinks), `chmod +x`. Check `command -v jq`; if missing, tell the user the long-run guard stays inert until it's installed. If a target exists with **different** content, show the diff and confirm before overwriting — the local copy may carry a fix that belongs upstream in this skill instead.
+1. **Merge settings.** Ensure `~/.claude/settings.json` contains the seven hook wirings below. **Merge, never clobber**: preserve every other key (`model`, `permissions`, other hooks, …) and don't duplicate an entry that already exists. Create the file with just `{"hooks": …}` if it's missing.
 
    ```json
    "hooks": {
-     "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\"$HOME/.claude/hooks/keepawake.sh\""}]}],
+     "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\"$HOME/.claude/hooks/keepawake.sh\""}]},
+                        {"hooks": [{"type": "command", "command": "\"$HOME/.claude/hooks/long-run-arm.sh\""}]}],
      "PreToolUse":       [{"hooks": [{"type": "command", "command": "\"$HOME/.claude/hooks/keepawake.sh\""}]}],
      "PostToolUse":      [{"hooks": [{"type": "command", "command": "\"$HOME/.claude/hooks/keepawake.sh\""}]}],
      "Stop":             [{"hooks": [{"type": "command", "command": "\"$HOME/.claude/hooks/chime.sh\" stop"}]},
@@ -59,7 +62,7 @@ How the pieces behave:
 1. **Verify.** Hooks hot-reload — no Claude Code restart needed.
    - Fire once: `sh -c '"$HOME/.claude/hooks/keepawake.sh"'`, then check the inhibitor exists — macOS `pgrep -fl "caffeinate -is -t"`, Linux `pgrep -af "systemd-inhibit.*claude-keepawake"` (on headless Linux, absence is correct).
    - Lease expiry: `CLAUDE_KEEPAWAKE_LEASE=5 sh -c '…keepawake.sh'`, confirm the process is gone a few seconds later.
-   - Long-run guard: in a scratch git repo, `echo goal > .long-run`, then pipe `{"cwd":"<repo>","session_id":"t","last_assistant_message":"done"}` into the script — it must print a `"decision": "block"` object; with `"last_assistant_message":"LONG-RUN STOP: queue-empty"` it must print nothing and delete the flag. Without a flag it must print nothing.
+   - Long-run guard: in a scratch git repo, `echo goal > .long-run`, then pipe `{"cwd":"<repo>","session_id":"t","last_assistant_message":"done"}` into the script — it must print a `"decision": "block"` object; with `"last_assistant_message":"LONG-RUN STOP: queue-empty"` it must print nothing and delete the flag. Without a flag it must print nothing. Arm: pipe `{"cwd":"<repo>","prompt":"long run"}` into `long-run-arm.sh` — it must create `<repo>/.long-run` and print an `additionalContext` object; with `"prompt":"in the long run"` it must do nothing.
    - Chime: `sh -c '"$HOME/.claude/hooks/chime.sh" stop'` — the user should hear it (skip on headless).
 1. **Report.** What was installed vs already current, any diffs the user resolved, and the verification results.
 
