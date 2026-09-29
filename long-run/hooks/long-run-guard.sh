@@ -51,8 +51,7 @@ needs-human|needs-authorization)
 esac
 
 # No valid stop line: refuse, unless a brake trips.
-tools=0
-[ -r "$tx" ] && tools=$(grep -c "\"type\":\"tool_use\"" "$tx" 2>/dev/null) || tools=${tools:-0}
+tools=$(grep -c '"type":"tool_use"' "$tx" 2>/dev/null); tools=${tools:-0}
 last_tools=-1; idle=0; total=0
 [ -r "$state" ] && read -r last_tools idle total < "$state"
 if [ "$tools" = "$last_tools" ]; then idle=$((idle + 1)); else idle=1; fi
@@ -66,5 +65,5 @@ touch "$flag"
 goal=$(head -c 400 "$flag" | tr '\n' ' ')
 bad=""
 [ -n "$code" ] && bad=" \"$code\" is not a valid stop code."
-reason="Long run active ($flag: $goal).$bad Do not end the turn: take the topmost unblocked item in the work queue and continue. A milestone, a summary, a context worry, 'the rest is incremental', or a question you could answer from the queue/AGENTS.md/prior authorization is not a stop reason. Blocked item → record the blocker, move to the next item. Stop ONLY with a stop report ending in one line: 'LONG-RUN STOP: queue-empty' (every item done or blocked with a named blocker), 'needs-human' (every remaining item needs a human's hands or knowledge), 'needs-authorization' (every remaining item needs an unauthorized irreversible action), or 'user-request' (the user asked to pause/stop)."
+reason="Long run active ($flag: $goal).$bad Do not end the turn: take the topmost unblocked item in the work queue and continue. A milestone, a summary, a context worry, 'the rest is incremental', or a question you could answer from the queue/AGENTS.md/prior authorization is not a stop reason. Blocked item → record the blocker, move to the next item. Stop ONLY with a stop report ending in one line: 'LONG-RUN STOP: queue-empty' (every item is done), 'needs-authorization' (everything remaining waits only on an authorization no standing grant covers), 'needs-human' (everything remaining waits on a human in some other way: hands, knowledge, an ESCALATEd decision), or 'user-request' (the user asked to pause/stop). First code that fits from the top wins."
 jq -n --arg r "$reason" '{decision: "block", reason: $r, hookSpecificOutput: {hookEventName: "Stop", decision: "block", reason: $r}}'

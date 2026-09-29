@@ -29,8 +29,8 @@ Instructions alone did not prevent any of these. This skill therefore has two la
 
 1. **Find the goal and the queue.** The project's `AGENTS.md` should name both — look for a *Goal* section and a `Work queue:` line (a file such as `docs/tickets.md` / `TODO.md`, or an issue tracker). If it doesn't, use the obvious file (`TODO.md`, `docs/tickets.md`, open issues); if none exists, write the queue yourself from the goal into `TODO.md` before starting. Ask the user at most once, and only when the goal itself is unknown.
 1. **Collect standing authorizations.** Read `AGENTS.md` and the conversation for pre-granted actions (e.g. "all live transactions on the test account are authorized", "you may power the VM on/off"). These are the answer to every "may I…?" you would otherwise ask. If the project has none recorded, record the ones the user gives now under an *Authorizations* heading in `AGENTS.md`.
-1. **Arm the run.** If `.long-run` already exists at the project root (the arm hook wrote it from the user's prompt), it's armed. Otherwise write it: one or two lines naming the goal and the queue, kept out of version control via `.git/info/exclude` (don't edit the project's `.gitignore` for it). The enforcement adapter keys off this file.
-1. **Pre-empt permission denials.** Read the project's `.claude/settings.json` `permissions.allow`; if the run will drive a tool that a sandbox or classifier has denied before (VM driver, file staging to a share, test runner), add those patterns now — see *Enforcement*.
+1. **Arm the run.** If `.long-run` already exists at the project root (the arm hook wrote it from the user's prompt), it's armed. Otherwise write it: one or two lines naming the goal and the queue, kept out of version control via `.git/info/exclude` (don't edit the project's `.gitignore` for it). The enforcement adapter keys off this file. One flag per repository: two sessions in the same checkout share one run, and whichever stops first ends it for both.
+1. **Pre-empt permission denials.** Add the run's known-safe command patterns to the project's `permissions.allow` before the first denial, not after — the reason is under *Enforcement*.
 1. **State the plan in two lines**: the goal, the topmost unblocked item. Then start — no confirmation question.
 
 ## The loop
@@ -57,14 +57,14 @@ Items that need a human are batched and done last, so one interruption covers th
 
 ## When stopping is legitimate
 
-Stop only when one of these is true for **every** remaining item — not just the current one:
+Stop only when one of these is true for **every** remaining item — not just the current one. Every blocker ends at a person (their hands, their knowledge, or their permission), so a blocked item is never `queue-empty`; take the first code that fits, top to bottom:
 
-| Code | Meaning |
-|---|---|
-| `queue-empty` | Every item is done, or blocked with a named blocker. |
-| `needs-human` | Every remaining item needs a human's hands or knowledge (a GUI dialog, a physical device, a fact only they know, an ESCALATEd decision). |
-| `needs-authorization` | Every remaining item needs an irreversible or outward-facing action no standing authorization covers. |
-| `user-request` | The user asked to pause or stop. |
+| Code | Meaning | Flag |
+|---|---|---|
+| `user-request` | The user asked to pause or stop. | deleted |
+| `needs-authorization` | Everything remaining waits *only* on authorizations no standing grant covers (irreversible or outward-facing actions) — one batch of yes/no answers unblocks it all. | kept |
+| `needs-human` | Everything remaining waits on a human in some other way: a GUI dialog, a physical device, a fact only they know, an ESCALATEd decision — possibly mixed with authorizations. | kept |
+| `queue-empty` | Every item is done. | deleted |
 
 **Not stop reasons:** a milestone; having written a summary; the session being long; "a good boundary for fresh context"; "the remaining work is incremental / lower value" (the user sets scope, not you); any question answerable from the queue, `AGENTS.md`, or an earlier authorization; one blocked item while others are unblocked; "want me to continue?".
 
@@ -76,7 +76,7 @@ End the final message with the report, and its **last line** exactly:
 LONG-RUN STOP: <code>
 ```
 
-The report lists: what was completed this run (with commit refs), each remaining item with its specific blocker, and — for `needs-human` / `needs-authorization` — the batched asks, each phrased so a one-word reply unblocks it. On `queue-empty` or `user-request`, delete `.long-run`. On `needs-human` / `needs-authorization`, keep it: the run resumes when the user answers.
+The report lists: what was completed this run (with commit refs), each remaining item with its specific blocker, and — for `needs-human` / `needs-authorization` — the batched asks, each phrased so a one-word reply unblocks it. The *Flag* column above says what happens to `.long-run`: a kept flag means the run resumes when the user answers. The Claude Code guard applies the column itself; on any other runner, do it by hand.
 
 A user message mid-run (a question, a correction) is answered and then the run continues — unless it asked to pause, in which case end with `LONG-RUN STOP: user-request`.
 
@@ -84,8 +84,8 @@ A user message mid-run (a question, a correction) is answered and then the run c
 
 The contract is runner-neutral; the adapters are not. Two Claude Code hooks in `hooks/`, installed once per machine by the `init-machine` skill, inert in every project without a `.long-run` flag:
 
-- **`long-run-arm.sh`** (`UserPromptSubmit`) — when the prompt contains "long run" / "長跑" (not the idiom "in the long run"), it writes the `.long-run` flag itself, git-excludes it, and injects one line telling the agent the run is armed. Enforcement therefore never depends on the agent arming it against itself; the *Arm the run* step above is the fallback when the phrase wasn't used.
-- **`long-run-guard.sh`** (`Stop`) — while a fresh `.long-run` exists, refuses an end-of-turn whose final message lacks a valid `LONG-RUN STOP:` line and re-injects the contract as the reason, so it survives compaction.
+- **`long-run-arm.sh`** (`UserPromptSubmit`) — when the prompt contains "long run" / "long-run" / "長跑", it writes the `.long-run` flag itself, git-excludes it, and injects one line telling the agent the run is armed. Enforcement therefore never depends on the agent arming it against itself; the *Arm the run* step above is the fallback when the phrase wasn't used. Two things do **not** arm: the idiom "in the long run", and a prompt that talks *about* this skill or its hooks ("review the long-run skill", "long-run/SKILL.md", "the long-run guard blocked me") — that used to arm a run against the person editing the skill. A prompt that *opens* with the phrase ("long run: …", "/long-run …", "長跑…") always arms, whatever follows.
+- **`long-run-guard.sh`** (`Stop`) — while a fresh `.long-run` exists, refuses an end-of-turn whose final message lacks a valid `LONG-RUN STOP:` line and re-injects the contract as the reason, so it survives compaction. It reads the final text from the hook's `last_assistant_message` field and falls back to the transcript only when that is missing.
 
 Safety valves in the guard:
 
@@ -94,6 +94,7 @@ Safety valves in the guard:
 - **Cost ceiling** — `LONG_RUN_MAX_BLOCKS` (default 40) refusals in total per session → allowed; a run that keeps circling has a hard end.
 - **Staleness** — a flag untouched for `LONG_RUN_TTL` seconds (default 12 h) is ignored, so an abandoned run never traps a later session.
 - `queue-empty` / `user-request` delete the flag. `user-request` is self-certified — the cheapest exit, kept on purpose so a run can always be ended.
+- **Above all of these sits the harness's own cap**: Claude Code overrides any Stop hook after 8 consecutive blocks (`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`) and its docs suggest a hook exit as soon as `stop_hook_active` is true. The guard deliberately ignores `stop_hook_active` — honouring it would let every second stop through, which is the failure this skill exists for — and relies on the idle brake instead, which trips well under the harness cap.
 
 **What the guard cannot fix: permission denials.** A sandbox/classifier refusal ends the action for that turn regardless of any hook, and a run that hits one every few minutes stalls no matter how good the contract is. The fix is upstream: put the project's known-safe command patterns (its VM driver, package manager, test runner, its staging directory) in `permissions.allow` of the project's tracked `.claude/settings.json`, so those commands never reach the classifier. Do this at the start of the first long run in a project, from the denials seen so far.
 

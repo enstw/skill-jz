@@ -3,7 +3,10 @@
 # Arms a long run deterministically when the user's prompt asks for one, so the
 # enforcement does not depend on the agent creating the flag against itself.
 #   trigger: the prompt contains "long run" / "long-run" / "longrun" / "長跑"
-#            (but not the idiom "in the long run")
+#   not:     the idiom "in the long run"; a prompt *about* the skill or its hooks
+#            ("the long-run skill", "long-run/SKILL.md", "long-run-guard") — unless
+#            the phrase leads the prompt ("long run: …", "/long-run …", "長跑…"),
+#            which is always an order to arm.
 #   effect:  writes `.long-run` at the project root (git top level, else cwd) with
 #            the prompt as its goal text, keeps it out of version control via
 #            .git/info/exclude, and injects one line of context telling the agent
@@ -15,13 +18,22 @@ prompt=$(printf '%s' "$input" | jq -r '.prompt // empty')
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 [ -n "$prompt" ] && [ -n "$cwd" ] || exit 0
 
-lower=$(printf '%s' "$prompt" | tr 'A-Z' 'a-z')
+lower=$(printf '%s' "$prompt" | tr 'A-Z' 'a-z' | sed 's/^[[:space:]]*//')
 case "$lower" in
-*"in the long run"*) exit 0 ;;
-esac
-case "$lower" in
-*"long run"*|*"long-run"*|*"longrun"*|*"長跑"*) ;;
-*) exit 0 ;;
+"long run"*|"long-run"*|"longrun"*|"/long-run"*|"長跑"*) ;;   # leading phrase: always arm
+*)
+  case "$lower" in
+  *"long run"*|*"long-run"*|*"longrun"*|*"長跑"*) ;;
+  *) exit 0 ;;
+  esac
+  case "$lower" in
+  *"in the long run"*) exit 0 ;;                                   # the idiom
+  *"long-run skill"*|*"long run skill"*|*"skill long run"*|*"skill long-run"*|\
+  *"long-run/"*|*"/long-run"*|*".long-run"*|*"skill.md"*|\
+  *"long-run-arm"*|*"long-run arm"*|*"long run arm"*|\
+  *"long-run-guard"*|*"long-run guard"*|*"long run guard"*|\
+  *"long-run hook"*|*"long run hook"*|*"long-run flag"*|*"long run flag"*) exit 0 ;;   # about the skill, not an order
+  esac ;;
 esac
 
 root=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$cwd")

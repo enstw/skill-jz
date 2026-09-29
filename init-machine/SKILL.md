@@ -36,7 +36,7 @@ How the pieces behave:
 
 - **keepawake.sh** — every hook firing restarts a bounded inhibitor (`caffeinate -is -t` on macOS, `systemd-inhibit … sleep` on Linux), so the machine stays awake until `CLAUDE_KEEPAWAKE_LEASE` seconds (default 720) past the last agent activity, then the inhibition self-expires. Idle at the prompt → machine may sleep. No unbounded resident processes. Headless Linux without `systemd-inhibit` → silent no-op.
 - **long-run-guard.sh** — the Stop-hook adapter of the `long-run` skill (canon lives there, not here). Does nothing unless the project root holds a fresh `.long-run` flag; then an end-of-turn without a valid `LONG-RUN STOP: <code>` line is refused so the agent continues. Needs `jq`; without it the guard fails open (never blocks).
-- **long-run-arm.sh** — the UserPromptSubmit adapter of the same skill: when the prompt contains "long run" / "長跑" (not the idiom "in the long run"), it writes the `.long-run` flag itself and tells the agent the run is armed — enforcement never depends on the agent arming it. Same `jq` fail-open.
+- **long-run-arm.sh** — the UserPromptSubmit adapter of the same skill: when the prompt contains "long run" / "長跑" (not the idiom "in the long run", and not a prompt merely *about* the long-run skill or its hooks), it writes the `.long-run` flag itself and tells the agent the run is armed — enforcement never depends on the agent arming it. Same `jq` fail-open.
 - **chime.sh** — takes `stop` or `notify`; prefers the user's own `~/.claude/sounds/<event>.wav`, falls back to a stock system sound (`afplay` on macOS, `paplay` on Linux, silent no-op when neither applies).
 
 ## Flow
@@ -62,7 +62,7 @@ How the pieces behave:
 1. **Verify.** Hooks hot-reload — no Claude Code restart needed.
    - Fire once: `sh -c '"$HOME/.claude/hooks/keepawake.sh"'`, then check the inhibitor exists — macOS `pgrep -fl "caffeinate -is -t"`, Linux `pgrep -af "systemd-inhibit.*claude-keepawake"` (on headless Linux, absence is correct).
    - Lease expiry: `CLAUDE_KEEPAWAKE_LEASE=5 sh -c '…keepawake.sh'`, confirm the process is gone a few seconds later.
-   - Long-run guard: in a scratch git repo, `echo goal > .long-run`, then pipe `{"cwd":"<repo>","session_id":"t","last_assistant_message":"done"}` into the script — it must print a `"decision": "block"` object; with `"last_assistant_message":"LONG-RUN STOP: queue-empty"` it must print nothing and delete the flag. Without a flag it must print nothing. Arm: pipe `{"cwd":"<repo>","prompt":"long run"}` into `long-run-arm.sh` — it must create `<repo>/.long-run` and print an `additionalContext` object; with `"prompt":"in the long run"` it must do nothing.
+   - Long-run guard: in a scratch git repo, `echo goal > .long-run`, then pipe `{"cwd":"<repo>","session_id":"t","last_assistant_message":"done"}` into the script — it must print a `"decision": "block"` object; with `"last_assistant_message":"LONG-RUN STOP: queue-empty"` it must print nothing and delete the flag. Without a flag it must print nothing. Arm: pipe `{"cwd":"<repo>","prompt":"long run"}` into `long-run-arm.sh` — it must create `<repo>/.long-run` and print an `additionalContext` object; with `"prompt":"in the long run"` or `"prompt":"review the long-run skill"` it must do nothing.
    - Chime: `sh -c '"$HOME/.claude/hooks/chime.sh" stop'` — the user should hear it (skip on headless).
 1. **Report.** What was installed vs already current, any diffs the user resolved, and the verification results.
 
