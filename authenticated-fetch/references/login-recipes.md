@@ -48,6 +48,15 @@ their own editor. It refuses a file other accounts can read. The values are
 read in-process and typed into the page; they never reach a command line, a
 result, or an error message.
 
+## Checking what is configured
+
+`assisted.py recipes [--json]` lists every recipe in the directory with
+`configured: true`, or `false` and the reason (incomplete recipe, missing
+credential file, file readable by others, an empty value). It reads the file
+only to see that both values are present, prints neither, and never creates
+the template. Run it before asking the user to sign in: a configured site is
+signed in with `login` straight away.
+
 ## Behavior
 
 - A session that is still valid returns `already_authenticated: true` without
@@ -55,6 +64,12 @@ result, or an error message.
 - The form is submitted **once per invocation**. A stalled form reports the
   address and title where it stopped and is never retried, because repeated
   bad submits can lock the account.
+- A stall whose page complains about a token or verification code, on a form
+  with no visible captcha, means the form's script fills a hidden field by a
+  request after load and the submit beat it. In `ready`, wait for the field's
+  final shape (e.g. `/^\\d{6}$/.test(document.getElementById('code')?.value || '')`)
+  rather than for mere presence, because such a field can hold a placeholder
+  first.
 - Every failure leaves the visible tab where it stopped, so the user can finish
   by hand; `status` then shows the signed-in tab and downloads proceed.
 - `login_verified: true` establishes the proxy session only. Whether the

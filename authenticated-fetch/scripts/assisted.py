@@ -125,6 +125,33 @@ def read_credentials(recipe):
     return found
 
 
+def cmd_recipes(args):
+    # Answers "can login run unattended?" without a browser. It reports only whether the
+    # two values are present, never the values, and never creates the template.
+    sites = []
+    for path in sorted(Path(args.sites).expanduser().glob('*.json')):
+        entry = {'site': path.stem, 'configured': False}
+        try:
+            recipe = json.loads(path.read_text(encoding='utf-8'))
+            missing = [key for key in RECIPE_KEYS if not recipe.get(key)]
+            if missing:
+                raise ValueError(f'recipe lacks: {", ".join(missing)}')
+            file = Path(recipe['credentials']).expanduser()
+            if not file.is_file():
+                raise ValueError(f'no credential file at {file}')
+            if file.stat().st_mode & 0o077:
+                raise ValueError(f'{file} is readable by other accounts; run chmod 600 on it')
+            values = dict(line.split('=', 1) for line in file.read_text(encoding='utf-8').splitlines()
+                          if '=' in line and not line.lstrip().startswith('#'))
+            if not all(values.get(recipe[key], '').strip() for key in ('user_key', 'pass_key')):
+                raise ValueError(f'{file} has an empty {recipe["user_key"]} or {recipe["pass_key"]}')
+            entry['configured'] = True
+        except (OSError, ValueError) as error:
+            entry['reason'] = str(error)
+        sites.append(entry)
+    return result('success', method='recipes', sites=sites)
+
+
 def cmd_login(args):
     from playwright.sync_api import Error as BrowserError
     recipe = load_recipe(args)
@@ -182,7 +209,10 @@ def cmd_login(args):
             page.locator(recipe['submit']).first.click()
             if reached(page, float(recipe.get('wait', 60))) is None:
                 raise RuntimeError(f'Stalled at {bare(page)} ({page.title()!r}) after one submit, which '
-                                   'was not retried. Check the credential file, or finish in the open window')
+                                   'was not retried. Read the message on that page before blaming the '
+                                   'credential: a rejected token or verification code usually means the '
+                                   "form's own script had not finished and the recipe needs a `ready` "
+                                   'expression. Otherwise check the credential file, or finish in the open window')
         final, title = bare(page), page.title()
         if state == 'done':
             page.close()  # nothing new to show; routine session checks must not pile up tabs
@@ -282,6 +312,9 @@ def main(argv=None):
     command.add_argument('url', nargs='?', help='One target URL; defaults to the recipe default_url')
     command.add_argument('--sites', default=str(DEFAULT_SITES), help='Recipe directory')
     command.set_defaults(fn=cmd_login)
+    command = sub.add_parser('recipes', help='List site recipes and whether each has a usable credential file')
+    command.add_argument('--sites', default=str(DEFAULT_SITES), help='Recipe directory')
+    command.set_defaults(fn=cmd_recipes)
     sub.add_parser('status').set_defaults(fn=cmd_status)
     command = sub.add_parser('pdflink')
     command.add_argument('substr', nargs='?')
@@ -312,6 +345,8 @@ def main(argv=None):
     if not args.json:
         for item in value.get('links', []):
             print(f'{item["href"]}  [{item["text"]}]')
+        for item in value.get('sites', []):
+            print(f'{item["site"]}  {"configured" if item["configured"] else "not configured: " + item["reason"]}')
         for item in value.get('tabs', []):
             print(f'{item["url"]}  |  {item["title"]}')
         if value.get('final_url'):

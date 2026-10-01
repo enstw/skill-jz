@@ -52,8 +52,9 @@ uv run <skill>/scripts/assisted.py stop
 ```
 
 Stop checks profile ownership before closing the browser; it retains the
-profile for a later login. `launch --headless` exists for fixture testing;
-use the default visible window when a person must log in.
+profile for a later login. `launch --headless` is for fixture testing and for
+a stored-credential `login`, where nobody needs to see the window; use the
+default visible window when a person must log in.
 
 ## Stored-credential login
 
@@ -61,6 +62,15 @@ use the default visible window when a person must log in.
 uv run <skill>/scripts/assisted.py launch
 uv run <skill>/scripts/assisted.py login <site> ["<one-target-url>"] --json
 ```
+
+**Check before asking the user for anything.** `assisted.py recipes` lists the
+site recipes and whether each has a usable credential file; it needs no
+browser and prints no values. When the site is `configured`, the user has
+already done their part: `launch --headless`, `login`, and download without
+waiting for them, because pausing to ask someone who already set this up only
+stalls the task until they return. Ask the user to sign in or fill the file
+only when `recipes` says the site is not configured, or after the one `login`
+attempt failed and the page gave no diagnosable cause.
 
 When the task names a site recipe, or the project records one beside its
 library proxy, run `login` after `launch` in place of `open` plus a hand
@@ -70,7 +80,12 @@ credential file: [references/login-recipes.md](references/login-recipes.md).
 - `already_authenticated: true` means the session was still valid and no
   credential was read. Session cookies in the dedicated profile can outlive a
   browser restart, so run `login` first and sign in only when it says so.
-- **On any failure, relay the error and offer both routes:** the user fills the
+- **On a stall, read the parked page before going to the user.** A message
+  about a rejected token or verification code, with a credential that worked
+  before, points at the recipe rather than the account: inspect the form
+  without submitting, and if its script fills a hidden field after load, add a
+  `ready` expression. That is a fixed cause, so one further `login` is allowed.
+- **On any other failure, relay the error and offer both routes:** the user fills the
   credential file in their own editor (`login` creates the empty mode-600
   template when it is missing), or signs in by hand in the window, which
   `login` leaves parked where it stopped. Continue with `status` once they say
@@ -78,8 +93,8 @@ credential file: [references/login-recipes.md](references/login-recipes.md).
 - **Never ask for, accept, or repeat a password in conversation**, and never
   read or print the credential file. The file and the visible window are the
   only two routes.
-- **Re-run `login` at most once, and only after the user says the cause is
-  fixed.** It submits once per invocation because repeated bad submits can lock
+- **Re-run `login` at most once, and only after the cause is fixed** (a recipe
+  fault you diagnosed and corrected, or the user saying they fixed theirs). It submits once per invocation because repeated bad submits can lock
   the account; a loop around it defeats that.
 - `login` takes one target URL. Library terms commonly prohibit systematic or
   bulk downloading and automated download software, so this skill retrieves
