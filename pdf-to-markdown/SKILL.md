@@ -33,8 +33,9 @@ hardened pymupdf pipeline, and running it is the same one command of
 effort:
 
 - Per-page tier fallback: pymupdf4llm structured Markdown → raw
-  `page.get_text()` → OCR (Apple Vision on macOS, ocrmypdf/tesseract
-  elsewhere). Each page gets the best tier that passes checks.
+  `page.get_text()` → OCR (Apple Vision on macOS; elsewhere RapidOCR —
+  the PaddleOCR engine Umi-OCR is built on, PP-OCRv6 multilingual, run
+  in-process). Each page gets the best tier that passes checks.
 - Gibberish detection that catches broken or mojibake text layers an
   ad-hoc script would silently pass through as "extracted successfully".
 - CJK-aware extraction and OCR language selection (default
@@ -115,13 +116,13 @@ package managers automatically.
 
 OCR prerequisites:
 
-- macOS: the converter uses Apple Vision. No tesseract setup is needed. For
+- macOS: the converter uses Apple Vision. No extra setup is needed. For
   Traditional Chinese OCR, macOS 13+ is recommended.
-- Ubuntu/Debian: clean text-layer PDFs need only `uv`; scanned/OCR fallback also
-  needs system OCR tools:
-  `sudo apt install tesseract-ocr tesseract-ocr-chi-tra tesseract-ocr-eng ghostscript qpdf`
-
-Substitute tesseract language packs when using non-default `--langs` values.
+- Linux/other: nothing beyond `uv`. OCR runs through RapidOCR (PaddleOCR
+  PP-OCRv6 models on onnxruntime, the engine behind Umi-OCR; one multilingual
+  model covering Traditional/Simplified Chinese, English, Japanese, Korean,
+  Latin and Cyrillic scripts). The first OCR run downloads the models once
+  (needs network); later runs are offline. No tesseract or apt packages.
 
 ## Path A - Bundled Offline Converter
 
@@ -137,8 +138,8 @@ Run from the user's project root:
 Useful flags:
 
 - `--langs zh-Hant,en-US` - comma-separated BCP-47 codes; default is
-  `zh-Hant,en-US`. This affects OCR language selection and text-gibberish
-  detection.
+  `zh-Hant,en-US`. This drives text-gibberish detection and Apple Vision's
+  language selection; RapidOCR's multilingual model ignores it.
 - `--offset N` - explicit printed-page offset. Omit it by default; the converter
   auto-detects header/footer offsets and logs the decision to stderr.
 - `--force-ocr` - ignore text layers and OCR every page. Use only when normal

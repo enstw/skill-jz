@@ -3,7 +3,8 @@
 # dependencies = [
 #   "pymupdf4llm",
 #   "pymupdf",
-#   "ocrmypdf; sys_platform != 'darwin'",
+#   "rapidocr; sys_platform != 'darwin'",
+#   "onnxruntime; sys_platform != 'darwin'",
 #   "pyobjc-framework-Vision; sys_platform == 'darwin'",
 #   "pyobjc-framework-Cocoa; sys_platform == 'darwin'",
 # ]
@@ -17,8 +18,9 @@ For each page we try, in order:
                     but confuses pymupdf4llm's layout heuristics
   3. OCR          — only when no usable text layer exists:
                       - macOS: Apple Vision (VNRecognizeTextRequest)
-                      - Linux/other: ocrmypdf whole-PDF preprocess (deskew +
-                        tesseract), then re-extract with tiers 1+2
+                      - Linux/other: RapidOCR — the PaddleOCR (PP-OCRv6
+                        multilingual) engine that Umi-OCR is built on,
+                        run in-process via onnxruntime
 
 Each page is annotated in the output with the tier that produced its text.
 """
@@ -27,10 +29,9 @@ from __future__ import annotations
 
 import re
 import sys
-import tempfile
+import os
 from collections import Counter
 from collections.abc import Callable
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal, NamedTuple
 
@@ -53,8 +54,7 @@ _SCRIPT_RANGES: dict[str, list[tuple[int, int]]] = {
 
 
 class _Language(NamedTuple):
-    """One BCP-47 language: tesseract code + script families it uses."""
-    tesseract: str
+    """One BCP-47 language: the script families it uses (gibberish check)."""
     scripts: tuple[str, ...]
 
 
@@ -63,18 +63,18 @@ class _Language(NamedTuple):
 # unqualified codes like "en" or "zh". When adding a language, add
 # one row here — no second table to keep in sync.
 LANGUAGES: dict[str, _Language] = {
-    "zh-Hant": _Language("chi_tra", ("cjk",)),
-    "zh-Hans": _Language("chi_sim", ("cjk",)),
-    "en-US":   _Language("eng",     ("latin",)),
-    "en-GB":   _Language("eng",     ("latin",)),
-    "ja-JP":   _Language("jpn",     ("cjk", "kana")),
-    "ko-KR":   _Language("kor",     ("hangul", "cjk")),
-    "fr-FR":   _Language("fra",     ("latin",)),
-    "de-DE":   _Language("deu",     ("latin",)),
-    "es-ES":   _Language("spa",     ("latin",)),
-    "it-IT":   _Language("ita",     ("latin",)),
-    "pt-BR":   _Language("por",     ("latin",)),
-    "ru-RU":   _Language("rus",     ("cyrillic",)),
+    "zh-Hant": _Language(("cjk",)),
+    "zh-Hans": _Language(("cjk",)),
+    "en-US":   _Language(("latin",)),
+    "en-GB":   _Language(("latin",)),
+    "ja-JP":   _Language(("cjk", "kana")),
+    "ko-KR":   _Language(("hangul", "cjk")),
+    "fr-FR":   _Language(("latin",)),
+    "de-DE":   _Language(("latin",)),
+    "es-ES":   _Language(("latin",)),
+    "it-IT":   _Language(("latin",)),
+    "pt-BR":   _Language(("latin",)),
+    "ru-RU":   _Language(("cyrillic",)),
 }
 
 
@@ -97,12 +97,6 @@ def _lookup_language(code: str) -> _Language | None:
         if key.lower().startswith(prefix):
             return lang
     return None
-
-
-def _tesseract_code(lg: str) -> str:
-    """Tesseract language code for a BCP-47 code, with identity fallback."""
-    lang = _lookup_language(lg)
-    return lang.tesseract if lang else lg
 
 
 def _script_ranges_for_langs(langs: list[str]) -> list[tuple[int, int]]:
@@ -214,42 +208,32 @@ def _ocr_page_vision(page: fitz.Page, langs: list[str], zoom: float = 3.0) -> st
     return "\n".join(lines)
 
 
-@contextmanager
-def _ocrmypdf_preprocess(src: Path, langs: list[str], force_ocr: bool):
-    """Yield a Path to an OCR-augmented copy of `src` (Linux/other path).
+_RAPIDOCR_ENGINE = None
 
-    --skip-text: pages with an existing text layer pass through unchanged;
-    only scanned pages get OCR'd. --force-ocr: rasterize and OCR every page.
+
+def _ocr_page_rapidocr(page: fitz.Page, zoom: float = 3.0) -> str:
+    """OCR one page via RapidOCR (PaddleOCR models on onnxruntime). Linux/other.
+
+    The engine behind Umi-OCR. Its default PP-OCRv6 det/rec models are one
+    multilingual model (CJK incl. Traditional Chinese, Latin, kana, hangul,
+    Cyrillic ...), so no per-language model selection is needed. Models are
+    downloaded once on first use and cached inside the uv environment.
     """
-    import ocrmypdf
+    global _RAPIDOCR_ENGINE
+    import numpy as np
+    from rapidocr import RapidOCR
 
-    tess_langs = "+".join(_tesseract_code(lg) for lg in langs)
-    with tempfile.TemporaryDirectory(prefix="pdf2md_ocrmypdf_") as tmp:
-        out = Path(tmp) / f"{src.stem}.ocr.pdf"
-        kwargs: dict = dict(
-            language=tess_langs,
-            output_type="pdf",
-            progress_bar=False,
-            deskew=True,
-        )
-        if force_ocr:
-            kwargs["force_ocr"] = True
-        else:
-            kwargs["skip_text"] = True
-        try:
-            ocrmypdf.ocr(str(src), str(out), **kwargs)
-        except ocrmypdf.exceptions.MissingDependencyError as e:
-            print(
-                f"ocrmypdf missing dependency: {e}\n"
-                f"Install tesseract + language data:\n"
-                f"  Ubuntu/Debian: sudo apt install tesseract-ocr "
-                f"tesseract-ocr-chi-tra tesseract-ocr-eng\n"
-                f"  Fedora: sudo dnf install tesseract "
-                f"tesseract-langpack-chi_tra tesseract-langpack-eng",
-                file=sys.stderr,
-            )
-            raise
-        yield out
+    if _RAPIDOCR_ENGINE is None:
+        _RAPIDOCR_ENGINE = RapidOCR(params={
+            "Global.log_level": "warning",
+            # An explicit thread count stops onnxruntime from pinning thread
+            # affinity, which fails noisily in containers / chroots.
+            "EngineConfig.onnxruntime.intra_op_num_threads": os.cpu_count() or 1,
+        })
+    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+    img = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width, pix.n)
+    result = _RAPIDOCR_ENGINE(img[:, :, :3])
+    return "\n".join(result.txts or ())
 
 
 # ---------------------------------------------------------------------------
@@ -257,9 +241,7 @@ def _ocrmypdf_preprocess(src: Path, langs: list[str], force_ocr: bool):
 # ---------------------------------------------------------------------------
 
 # Tier values emitted in the output markdown as ``<!-- tier=... -->``.
-# These strings are part of the output contract (see AGENTS.md) — any
-# new tier must be added here AND in the _CLEAN_TIERS set below if it
-# represents a successful extraction.
+# These strings are part of the output contract (see AGENTS.md).
 Tier = Literal[
     "pymupdf4llm",
     "pymupdf",
@@ -268,8 +250,6 @@ Tier = Literal[
     "fallback:pymupdf",
     "empty",
 ]
-
-_CLEAN_TIERS: frozenset[Tier] = frozenset({"pymupdf4llm", "pymupdf"})
 
 
 class _TierTrace:
@@ -377,30 +357,6 @@ def _extract_page(
         return t2, "fallback:pymupdf"
     trace.emit("empty")
     return "", "empty"
-
-
-def _needs_ocr_scan(
-    doc: fitz.Document, md_chunks: list[dict], langs: list[str]
-) -> bool:
-    """Do any pages fail both tier 1 and tier 2? (Pre-OCR scan.)
-
-    Delegates to :func:`_extract_page` with ``per_page_ocr=None`` so the
-    tier thresholds stay in exactly one place — if every chunk comes
-    back with a clean tier, OCR isn't needed.
-    """
-    for chunk in md_chunks:
-        idx = chunk["metadata"].get("page_number", 1) - 1
-        _text, tier = _extract_page(
-            doc,
-            idx,
-            chunk.get("text", ""),
-            per_page_ocr=None,
-            force_ocr=False,
-            langs=langs,
-        )
-        if tier not in _CLEAN_TIERS:
-            return True
-    return False
 
 
 # ---------------------------------------------------------------------------
@@ -558,10 +514,9 @@ def _write_markdown(
     emit_page_markers: bool = True,
 ):
     doc = fitz.open(str(extract_pdf))
-    # label_doc may alias doc (macOS / clean-Linux path) or be a separate
-    # handle on the pre-OCR original (Linux ocrmypdf path, where ocrmypdf
-    # can re-encode labels during preprocessing). Track ownership so the
-    # finally block only closes what we opened here.
+    # label_doc may alias doc or be a separate handle on another file that
+    # carries the page labels. Track ownership so the finally block only
+    # closes what we opened here.
     if label_pdf == extract_pdf:
         label_doc = doc
         label_doc_owned = False
@@ -572,7 +527,7 @@ def _write_markdown(
         # use_ocr=False: prevent pymupdf4llm from silently invoking tesseract
         # on pages where layout analysis can't find text. We want tier 1 to
         # mean "text layer was present and readable", nothing else — any OCR
-        # happens explicitly at tier 3 (Vision on macOS, ocrmypdf elsewhere)
+        # happens explicitly at tier 3 (Vision on macOS, RapidOCR elsewhere)
         # so the tier annotation in the output reflects reality.
         md_chunks = pymupdf4llm.to_markdown(doc, page_chunks=True, use_ocr=False)
 
@@ -693,76 +648,28 @@ def convert(
         finally:
             probe.close()
 
-    # macOS: Vision is cheap and per-page; no preprocessing needed.
+    # Per-page OCR, only for pages whose text layer fails tiers 1+2 (or
+    # every page with --force-ocr): Apple Vision on macOS, RapidOCR elsewhere.
     if IS_MACOS:
         backend = f"Apple Vision ({','.join(langs)})"
-        print(f"[pdf2md] backend={backend}", file=sys.stderr)
-        _write_markdown(
-            extract_pdf=src,
-            label_pdf=src,
-            output_md=output_md_path,
-            page_offset=page_offset,
-            force_ocr=force_ocr,
-            per_page_ocr=lambda page: _ocr_page_vision(page, langs),
-            backend_label=backend,
-            langs=langs,
-            debug=debug,
-            use_pdf_labels=use_pdf_labels,
-            emit_page_markers=emit_page_markers,
-        )
-        return
-
-    # Linux/other: scan first; only invoke ocrmypdf if actually needed.
-    if force_ocr:
-        needs_ocr = True
+        per_page_ocr = lambda page: _ocr_page_vision(page, langs)
     else:
-        probe = fitz.open(str(src))
-        try:
-            probe_chunks = pymupdf4llm.to_markdown(
-                probe, page_chunks=True, use_ocr=False
-            )
-            needs_ocr = _needs_ocr_scan(probe, probe_chunks, langs)
-        finally:
-            probe.close()
-
-    if not needs_ocr:
-        backend = "none (text layer already clean)"
-        print(f"[pdf2md] backend={backend}", file=sys.stderr)
-        _write_markdown(
-            extract_pdf=src,
-            label_pdf=src,
-            output_md=output_md_path,
-            page_offset=page_offset,
-            force_ocr=False,
-            per_page_ocr=None,
-            backend_label=backend,
-            langs=langs,
-            debug=debug,
-            use_pdf_labels=use_pdf_labels,
-            emit_page_markers=emit_page_markers,
-        )
-        return
-
-    mode = "force-ocr" if force_ocr else "skip-text"
-    backend = f"ocrmypdf {mode} ({','.join(langs)})"
+        backend = "RapidOCR (PP-OCRv6 multilingual)"
+        per_page_ocr = _ocr_page_rapidocr
     print(f"[pdf2md] backend={backend}", file=sys.stderr)
-    with _ocrmypdf_preprocess(src, langs, force_ocr=force_ocr) as ocr_pdf:
-        # After ocrmypdf, scanned pages have a text layer — tiers 1+2 will
-        # pick it up. per_page_ocr is None: no further re-OCR on Linux.
-        _write_markdown(
-            extract_pdf=ocr_pdf,
-            label_pdf=src,  # preserve original page labels
-            output_md=output_md_path,
-            page_offset=page_offset,
-            force_ocr=False,
-            per_page_ocr=None,
-            backend_label=backend,
-            langs=langs,
-            debug=debug,
-            use_pdf_labels=use_pdf_labels,
-            emit_page_markers=emit_page_markers,
-        )
-
+    _write_markdown(
+        extract_pdf=src,
+        label_pdf=src,
+        output_md=output_md_path,
+        page_offset=page_offset,
+        force_ocr=force_ocr,
+        per_page_ocr=per_page_ocr,
+        backend_label=backend,
+        langs=langs,
+        debug=debug,
+        use_pdf_labels=use_pdf_labels,
+        emit_page_markers=emit_page_markers,
+    )
 
 if __name__ == "__main__":
     import argparse
@@ -770,7 +677,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Convert PDF to Markdown with page markers. "
                     "Tiered extraction: pymupdf4llm → pymupdf → OCR "
-                    "(Apple Vision on macOS, ocrmypdf on Linux).",
+                    "(Apple Vision on macOS, RapidOCR elsewhere).",
     )
     parser.add_argument("input", help="Input PDF path")
     parser.add_argument(
