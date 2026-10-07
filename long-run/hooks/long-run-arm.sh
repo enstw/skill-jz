@@ -6,7 +6,9 @@
 #   not:     the idiom "in the long run"; a prompt *about* the skill or its hooks
 #            ("the long-run skill", "long-run/SKILL.md", "long-run-guard") — unless
 #            the phrase leads the prompt ("long run: …", "/long-run …", "長跑…"),
-#            which is always an order to arm.
+#            which is always an order to arm; and a prompt that opens with another
+#            slash command ("/refine-prompts long-run …"), where the phrase is that
+#            command's argument and that command's own skill decides whether to arm.
 #   effect:  writes `.long-run` at the project root (git top level, else cwd) with
 #            the prompt as its goal text, keeps it out of version control via
 #            .git/info/exclude, and injects one line of context telling the agent
@@ -21,6 +23,7 @@ cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 lower=$(printf '%s' "$prompt" | tr 'A-Z' 'a-z' | sed 's/^[[:space:]]*//')
 case "$lower" in
 "long run"*|"long-run"*|"longrun"*|"/long-run"*|"長跑"*) ;;   # leading phrase: always arm
+/*) exit 0 ;;                                                    # another slash command's argument
 *)
   case "$lower" in
   *"long run"*|*"long-run"*|*"longrun"*|*"長跑"*) ;;

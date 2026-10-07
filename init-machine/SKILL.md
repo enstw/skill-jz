@@ -36,7 +36,7 @@ How the pieces behave:
 
 - **keepawake.sh** — every hook firing restarts a bounded inhibitor (`caffeinate -is -t` on macOS, `systemd-inhibit … sleep` on Linux), so the machine stays awake until `CLAUDE_KEEPAWAKE_LEASE` seconds (default 720) past the last agent activity, then the inhibition self-expires. Idle at the prompt → machine may sleep. No unbounded resident processes. Headless Linux without `systemd-inhibit` → silent no-op.
 - **long-run-guard.sh** — the Stop-hook adapter of the `long-run` skill (canon lives there, not here). Does nothing unless the project root holds a fresh `.long-run` flag; then an end-of-turn without a valid `LONG-RUN STOP: <code>` line is refused so the agent continues. Needs `jq`; without it the guard fails open (never blocks).
-- **long-run-arm.sh** — the UserPromptSubmit adapter of the same skill: when the prompt contains "long run" / "長跑" (not the idiom "in the long run", and not a prompt merely *about* the long-run skill or its hooks), it writes the `.long-run` flag itself and tells the agent the run is armed — enforcement never depends on the agent arming it. Same `jq` fail-open.
+- **long-run-arm.sh** — the UserPromptSubmit adapter of the same skill: when the prompt contains "long run" / "長跑" (not the idiom "in the long run", not a prompt merely *about* the long-run skill or its hooks, and not an argument to another slash command), it writes the `.long-run` flag itself and tells the agent the run is armed — enforcement never depends on the agent arming it. Same `jq` fail-open.
 - **chime.sh** — takes `stop` or `notify`; prefers the user's own `~/.claude/sounds/<event>.wav`, falls back to a stock system sound (`afplay` on macOS, `paplay` on Linux, silent no-op when neither applies).
 
 ## Flow
