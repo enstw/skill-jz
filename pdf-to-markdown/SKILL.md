@@ -184,15 +184,17 @@ The fallback must still produce `workspace/<pdf-stem>.md`.
 
 Preferred shape when the runtime supports parallel workers:
 
-1. Split the PDF into contiguous 3-page ranges.
+1. Split the PDF into a few contiguous page ranges, tens of pages each rather
+   than a handful: every worker costs a context of its own, so many small
+   ranges multiply cost and time.
 2. Run ranges concurrently. Each worker reads its assigned pages with native
    vision/PDF capability and writes one file per page:
    `workspace/<pdf-stem>/pNNNN.md`.
 3. Use 4-digit zero-padding so lexical sort equals page order.
 4. Return only status lines from workers, not transcribed page content.
 
-If parallel workers are unavailable, process the same 3-page ranges
-sequentially and write the same `pNNNN.md` files.
+If parallel workers are unavailable, process the pages sequentially and write
+the same `pNNNN.md` files.
 
 Each page file should start with a page marker:
 
