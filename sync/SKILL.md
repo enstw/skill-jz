@@ -86,8 +86,8 @@ The warning is informational; it does not block a push that was otherwise safe.
 
 Tell the user, in this order:
 
-1. Branch and upstream, with the post-action ahead/behind counts.
 1. What `/sync` actually did: pushed, fast-forwarded, or nothing.
+1. Branch and upstream, with the post-action ahead/behind counts.
 1. The dirty-tree warning, if any.
 1. A single "what to do next" line only when action is required (commit, pull manually, set an upstream, configure a remote, resolve divergence). When state is clean and synced, omit this line.
 

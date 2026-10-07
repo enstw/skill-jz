@@ -15,10 +15,10 @@
 - [x] pdf-to-markdown — 642a292: vision fallback uses a few large page ranges, not 3-page workers
 - [x] recommend — unchanged
 - [x] repo-publish — unchanged
-- [x] robust-web-fetch — HASH: references drop the retired "tier" scheme
-- [ ] authenticated-fetch
-- [ ] self-evaluate
-- [ ] send-file
-- [ ] sync
+- [x] robust-web-fetch — df80c3f: references drop the retired "tier" scheme
+- [x] authenticated-fetch — unchanged
+- [x] self-evaluate — unchanged
+- [x] send-file — unchanged
+- [x] sync — HASH: report leads with what sync did
 - [ ] tui-drive
 - [ ] yt2sub
