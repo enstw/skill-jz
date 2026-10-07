@@ -2,8 +2,8 @@
 name: tui-drive
 description: >-
   Drive an interactive terminal program you can't type into — a TUI, a slash command that only
-  exists inside an agent CLI's interactive prompt (e.g. Claude Code `/artifacts`: list, copy URL,
-  rename, pin, DELETE published artifacts), a wizard or login prompt, a REPL — while running
+  exists inside an agent CLI's interactive prompt (e.g. Claude Code `/artifacts`, which manages
+  published artifacts), a wizard or login prompt, a REPL — while running
   headlessly with no tool or flag for it. Use whenever the user says "delete that artifact",
   "remove the artifact", "run /artifacts", "run the slash command for me", "do it from tmux",
   "answer the prompts for me", "刪掉那個 artifact", "幫我跑 /artifacts" — or when a program
