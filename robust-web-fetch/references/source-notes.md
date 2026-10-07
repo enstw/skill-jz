@@ -1,6 +1,6 @@
-## Beyond the tiers: locating a fetchable URL (2026-07-05 field notes)
+## Before fetching: locating a fetchable URL (2026-07-05 field notes)
 
-The tiers assume you already hold a fetchable URL. Three techniques from real acquisition work sit *upstream* of the tiers — they change or discover the URL instead of attacking the block:
+`fetch.py` assumes you already hold a fetchable URL. Three techniques from real acquisition work sit *upstream* of it — they change or discover the URL instead of attacking the block:
 
 1. **Wayback CDX search when the cited URL is dead.** The availability API returns nothing useful for restructured sites (e.g. gov.cn now 302s old article URLs to its homepage). Query the CDX index directly and filter on URL fragments you can guess (a date, a content ID):
 
@@ -18,4 +18,4 @@ The tiers assume you already hold a fetchable URL. Three techniques from real ac
 
    If it says `is_printdisabled`, the real fallback is interlibrary loan, not IA.
 
-1. **Hunt the alternative open version before fighting the paywall.** Paywalled books and articles often have a legally open sibling the tiers never need to fight: the working-paper version of a book chapter (university repositories: SFU Summit, EUI Cadmus, SSRN), the journal-article version of a book's core argument (law journals host their own open PDFs), or an official primary source that supersedes the secondary one (central-bank white papers). Search `<author> <topic> working paper|SSRN|repository` first; a five-minute hunt beats a four-tier escalation that ends blocked anyway. Cite with the version actually used, noted as such.
+1. **Hunt the alternative open version before fighting the paywall.** Paywalled books and articles often have a legally open sibling that needs no fight: the working-paper version of a book chapter (university repositories: SFU Summit, EUI Cadmus, SSRN), the journal-article version of a book's core argument (law journals host their own open PDFs), or an official primary source that supersedes the secondary one (central-bank white papers). Search `<author> <topic> working paper|SSRN|repository` first; a five-minute hunt beats a full fetch escalation that ends blocked anyway. Cite with the version actually used, noted as such.

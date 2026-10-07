@@ -12,10 +12,10 @@
 - [x] init-agents — af8cff3: root outside git is the cwd, no confirmation
 - [x] init-machine — unchanged
 - [x] jev-decide — unchanged
-- [x] pdf-to-markdown — HASH: vision fallback uses a few large page ranges, not 3-page workers
-- [ ] recommend
-- [ ] repo-publish
-- [ ] robust-web-fetch
+- [x] pdf-to-markdown — 642a292: vision fallback uses a few large page ranges, not 3-page workers
+- [x] recommend — unchanged
+- [x] repo-publish — unchanged
+- [x] robust-web-fetch — HASH: references drop the retired "tier" scheme
 - [ ] authenticated-fetch
 - [ ] self-evaluate
 - [ ] send-file
