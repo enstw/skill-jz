@@ -36,8 +36,8 @@ Instructions alone did not prevent any of these. This skill therefore has two la
 ## The loop
 
 1. **Take the topmost unblocked item.** "Next" always means that; its choice needs no permission.
-1. **Do it, verify it** (tests, live check, whatever the project's done-definition is).
-1. **Checkpoint, don't pause.** Commit, update the queue item's status, push if that is the project's convention. A milestone is a checkpoint, never a stopping point — write the summary into the queue/commit, not into a closing message.
+1. **Do it, verify it** (tests, live check, whatever the project's done-definition is). An item whose background command or subagent is still running is not done: wait for its output.
+1. **Checkpoint, don't pause.** Commit, update the queue item's status, push if that is the project's convention. A milestone is a checkpoint, never a stopping point — write the summary into the queue/commit, not into a closing message. A message with no action in it ends the turn, and the work stops until someone answers, so put any status note or recommendation in the same message as your next action and carry on with whatever doesn't depend on an answer. If you catch yourself announcing the next step, inviting the user to redirect you, or offering to wait, delete it and take that step.
 1. **Repeat.**
 
 ### A choice point (two or more reasonable ways forward)
@@ -66,7 +66,7 @@ Stop only when one of these is true for **every** remaining item — not just th
 | `needs-human` | Everything remaining waits on a human in some other way: a GUI dialog, a physical device, a fact only they know, an ESCALATEd decision — possibly mixed with authorizations. | kept |
 | `queue-empty` | Every item is done. | deleted |
 
-**Not stop reasons:** a milestone; having written a summary; the session being long; "a good boundary for fresh context"; "the remaining work is incremental / lower value" (the user sets scope, not you); any question answerable from the queue, `AGENTS.md`, or an earlier authorization; one blocked item while others are unblocked; "want me to continue?".
+**Not stop reasons:** a milestone; a summary that announces the next step instead of taking it; a list of decisions for the user, none of which blocks the remaining work; the session being long; "a good boundary for fresh context"; "the remaining work is incremental / lower value" (the user sets scope, not you); any question answerable from the queue, `AGENTS.md`, or an earlier authorization; one blocked item while others are unblocked; "want me to continue?".
 
 ### The stop report
 
