@@ -6,8 +6,9 @@ description: >-
   separately. Use when the user says "refine the skills", "update the skills
   to the new prompt guide", "apply the latest prompting best practices",
   "/refine-prompts", "用最新的 prompt guide 改寫 skill" — or when a new model
-  release ships a new prompting guide. Optional --model <id> adds that model's
-  own guide; `all` refines the whole collection as a long run, starting with
+  release ships a new prompting guide. Applies the general guide plus the
+  docs' recommended default model's guide, or --model <id> / --model general;
+  `all` refines the whole collection as a long run, starting with
   this skill itself. Do not rewrite skills from remembered prompting advice or from a
   scraped HTML page: the bundled fetch script pulls the live Markdown guides,
   checks them against the docs index, and records hashes so every change is
@@ -25,15 +26,17 @@ Bring one skill, or every skill in a collection, in line with the current prompt
   - skill folder names: refine those, in the order given;
   - `all`: refine the whole collection, see *Refine all*;
   - nothing: refine nothing. List every top-level folder with a `SKILL.md`, each with the subject of its last refine commit (or "never refined"), and stop. Rewriting the whole collection, this skill included, is too large to happen without the explicit word `all`.
-- **`--model <id>`** (optional), e.g. `claude-opus-5-5`.
-  - Without it, apply the **general guide** only.
-  - With it, apply the general guide **and** that model's own guide, plus the earlier model guide it builds on when it names one. Where they disagree, the model's guide wins for that model.
-  - If the model has no guide of its own, the fetch reports `NO_MODEL_GUIDE`; continue with the general guide and say so in the report.
+- **`--model`**, one of:
+  - nothing: the latest default model, meaning the one the docs' models overview recommends when you're unsure ("start with …"). The fetch resolves it and prints `MODEL <id> default`; if the docs no longer say, it fails with `DEFAULT_MODEL_FAIL`, so pass a model;
+  - `<id>`, e.g. `claude-opus-5-5`: that model;
+  - `general`: no model, the general guide alone.
+
+  For a model, apply the general guide **and** that model's own guide, plus the earlier model guide it builds on when it names one. Where they disagree, the model's guide wins for that model. If the model has no guide of its own, the fetch reports `NO_MODEL_GUIDE`; continue with the general guide and say so in the report.
 
 ## Procedure
 
 1. **Start clean.** Work on the repo's main branch, synced with the remote. The target folders must have no uncommitted changes, because each skill gets its own commit. If one does, skip that skill and report why.
-1. **Fetch the guides.** Run `scripts/fetch-guides.sh [--model <id>] <out_dir>` (use a scratch directory). It prints one `GUIDE <role> <url> sha256:<hash> <bytes> <path>` line per file and writes them to `<out_dir>/MANIFEST`. A non-zero exit means no reliable guide text: stop and report it. Do not fall back to memory or to other copies of the guide found on the web.
+1. **Fetch the guides.** Run `scripts/fetch-guides.sh [--model <id>|general] <out_dir>` (use a scratch directory). It prints the `MODEL` line, then one `GUIDE <role> <url> sha256:<hash> <bytes> <path>` line per file and writes them to `<out_dir>/MANIFEST`. A non-zero exit means no reliable guide text: stop and report it. Do not fall back to memory or to other copies of the guide found on the web.
 1. **Read every fetched guide in full.** Then build a checklist from them and write it to `<out_dir>/CHECKLIST.md`, with the `MANIFEST` lines at its top. Later steps, and later tickets in a long run, read that file instead of the guides, so every skill is judged against the same checklist even after the context is compacted. For each point of guidance, decide which group it belongs to:
    - **Skill text**: anything about how instructions are written or what behavior they should ask for. Examples: stating the reason behind a rule, telling the model what to do rather than only what to avoid, calibrating emphasis, naming the specific failure modes to avoid, where examples help, scope and initiative, when to stop and when to keep going.
    - **Harness**: anything a skill's bundled scripts or hooks do, such as continuation logic, stop checks, or progress reporting.

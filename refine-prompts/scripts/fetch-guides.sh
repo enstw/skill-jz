@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
 # Fetch Anthropic's prompting guides as Markdown for refine-prompts.
 #
-#   fetch-guides.sh [--model <model-id>] [out_dir]
+#   fetch-guides.sh [--model <model-id>|general] [out_dir]
 #
 # Always fetches the general guide (claude-prompting-best-practices.md).
-# With --model, also fetches that model's own guide (prompting-claude-<slug>.md)
-# and, when that guide's intro links an earlier model guide it builds on, that
-# one too (one hop only). Model guides are discovered through llms.txt, never
-# guessed: a model with no guide in the index gets the general guide alone.
+#   no --model        the docs' recommended default model ("If you're unsure which
+#                     model to use, start with …" on the models overview page)
+#   --model <id>      that model
+#   --model general   no model: the general guide alone
+# For a model, also fetches its own guide (prompting-claude-<slug>.md) and, when
+# that guide's intro links an earlier model guide it builds on, that one too (one
+# hop only). Model guides are discovered through llms.txt, never guessed: a model
+# with no guide in the index gets the general guide alone.
 #
-# Output (stdout), one line per file, then the out_dir:
+# Output (stdout):
+#   MODEL <model-id|general> <default|given>
 #   GUIDE <role> <url> sha256:<12 hex> <bytes> <local path>
 #   NO_MODEL_GUIDE <model-id> available: <slugs...>
 #   OUT_DIR <dir>
-# The same GUIDE lines plus a fetched-at stamp are written to <out_dir>/MANIFEST.
+# The same MODEL and GUIDE lines plus a fetched-at stamp are written to <out_dir>/MANIFEST.
 # Exit: 0 ok, 2 usage, 3 fetch/validation failure (nothing partial left behind).
 set -euo pipefail
 
@@ -22,11 +27,12 @@ INDEX=https://platform.claude.com/llms.txt
 GENERAL="$BASE/claude-prompting-best-practices.md"
 
 model=""
+source=given
 out=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --model) model="${2:-}"; [ -n "$model" ] || { echo "usage: $0 [--model <id>] [out_dir]" >&2; exit 2; }; shift 2 ;;
-    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+    --model) model="${2:-}"; [ -n "$model" ] || { echo "usage: $0 [--model <id>|general] [out_dir]" >&2; exit 2; }; shift 2 ;;
+    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
     -*) echo "unknown option: $1" >&2; exit 2 ;;
     *) out="$1"; shift ;;
   esac
@@ -51,6 +57,17 @@ fetch() {
   local line="GUIDE $role $url sha256:$(sha12 "$dest") $(wc -c < "$dest" | tr -d ' ') $dest"
   echo "$line"; echo "$line" >> "$manifest"
 }
+
+if [ -z "$model" ]; then
+  # The docs' recommended default, from the sentence's link: …/models/<slug>/overview
+  overview=https://platform.claude.com/docs/en/about-claude/models/overview.md
+  slug=$(curl -fsSL --retry 3 "$overview" | grep -m1 "If you're unsure which model" \
+    | sed -nE 's#.*start with \[[^]]*\]\([^)]*/models/([a-z0-9-]+)/overview\).*#\1#p') || true
+  [ -n "$slug" ] || { echo "DEFAULT_MODEL_FAIL $overview (recommendation sentence not found; pass --model)" >&2; exit 3; }
+  model="claude-$slug"; source=default
+fi
+echo "MODEL $model $source" | tee -a "$manifest"
+[ "$model" = general ] && model=""
 
 fetch general "$GENERAL"
 
