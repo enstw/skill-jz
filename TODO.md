@@ -19,6 +19,6 @@
 - [x] authenticated-fetch — unchanged
 - [x] self-evaluate — unchanged
 - [x] send-file — unchanged
-- [x] sync — HASH: report leads with what sync did
-- [ ] tui-drive
-- [ ] yt2sub
+- [x] sync — 32d0b30: report leads with what sync did
+- [x] tui-drive — unchanged
+- [x] yt2sub — HASH: summary only when asked; a transcript request ends at the .txt

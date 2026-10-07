@@ -66,7 +66,7 @@ WHISPER_MODEL=base <path-to-skill>/scripts/yt2sub "https://youtube.com/..." ./wo
 
 1. **Wait for completion**: The script will download the audio (if a URL is provided) and run `faster-whisper`. The output will be saved as a `.txt` file in the specified `[output-dir]` (or the current directory if omitted), with the filename matching the video or audio title.
 2. **Read the transcript**: Read the resulting `.txt` file.
-3. **Format and Summarize**: 
+3. **Format and Summarize**, when the user asked for a summary, notes, or quotes; for a transcript alone, the `.txt` is the deliverable:
    - Convert the transcript into a well-structured Markdown document.
    - Extract key points, quotes, and the overarching thesis.
    - If working within a research repository (e.g., academic templates), conform to its citation protocols (e.g., saving the summary in a specific `refs/` directory and updating bibliography files).
