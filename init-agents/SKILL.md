@@ -20,7 +20,7 @@ Canonical project context for AI agents lives in `AGENTS.md`. Agent-specific ins
 
 ## Flow
 
-1. **Locate root.** Run `git rev-parse --show-toplevel` if available, otherwise use the current working directory and confirm with the user.
+1. **Locate root.** Run `git rev-parse --show-toplevel` if available, otherwise use the current working directory.
 1. **Survey existing context files** in the root: `AGENTS.md`, common agent-specific instruction files such as `CLAUDE.md` and `GEMINI.md`, and any project-specific equivalents. Read enough to know which have substantive project content. Empty files, pointer-only files, template stubs, and placeholder headings are non-substantive.
 1. **Confirm the agent set with the user.** Common pointer files include `CLAUDE.md` and `GEMINI.md`. Ask which agent-specific instruction files to create or update before writing anything. Do not assume.
 1. **Decide canonical content for `AGENTS.md`.**
