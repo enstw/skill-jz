@@ -103,9 +103,32 @@ credential file: [references/login-recipes.md](references/login-recipes.md).
   schedule. When a gateway shows usage terms the user has not yet seen, show
   them the text before the first `login`.
 
+A gateway that signs a vendor in by the vendor's own SSO hands the page to the
+vendor's unproxied host: `login` then returns success with `handed_off: true`
+and `login_verified: false`. Do not run `login` again; confirm entitlement on
+that page with `text` and continue in the same session.
+
 An open page or `status` response does not prove authentication. Confirm that
 the requested title is accessible. If it says “Get access” or the institution
 does not license it, record the limitation and seek another authorized copy.
+
+## Reading pages and searching catalogues
+
+Use `text` to read a landing page, a catalogue search, or a book record in the
+session instead of writing a browser script:
+
+```bash
+uv run <skill>/scripts/assisted.py text "<url>" --links "Detail|pdf"
+uv run <skill>/scripts/assisted.py text "<url>" --fill "<search-box-selector>" "<query>"
+uv run <skill>/scripts/assisted.py text "<substring-of-open-tab-url>"
+```
+
+A URL opens a new tab at desktop width (narrow viewports hide search boxes),
+reads it, and closes it unless `--keep`; a substring reads an open tab.
+`--fill` types into the box and presses Enter, which is how sites whose search
+URLs carry state or tokens are searched. `--settle` waits for script-rendered
+results (default 4 s). Searching for the one named source the user asked for
+is in scope; paging through results to collect many sources is not.
 
 ## EZproxy and chaptered books
 

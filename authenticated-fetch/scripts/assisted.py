@@ -32,6 +32,8 @@ from fetch_common import atomic_write, emit, pdf_pages, resolve_skill, result
 DEFAULT_PORT = 18222
 DEFAULT_PROFILE = Path.home() / '.cache' / 'assisted-fetch-profile'
 DEFAULT_SITES = Path.home() / '.config' / 'authenticated-fetch' / 'sites'
+HANDOFF_SETTLE = 3  # seconds a page must stay on the vendor host
+DEFAULT_WIDTH = 1440  # narrow viewports hide search boxes behind menus
 RECIPE_KEYS = ('entry', 'credentials', 'user_key', 'pass_key', 'user', 'password', 'submit', 'success_url')
 
 
@@ -171,13 +173,28 @@ def cmd_login(args):
         path = '/'.join(segment.split(';')[0] for segment in parts.path.split('/'))
         return urlunsplit(parts._replace(path=path, query='', fragment=''))
 
+    gateway = urlsplit(recipe['entry'].replace('{url}', '')).hostname
+    vendor = urlsplit(target).hostname
+    vendor = vendor if vendor and vendor != gateway else None
+
     def reached(page, seconds, form=False):
         # Redirect chains detach frames mid-poll, so a browser error means "look again".
         deadline = time.monotonic() + seconds
+        arrived = None
         while time.monotonic() < deadline:
             try:
-                if done.search(bare(page)):
+                here = bare(page)
+                if done.search(here):
                     return 'done'
+                # Some gateways sign the vendor in by its own SSO and hand the page to the
+                # vendor's unproxied host. A page that settles there was handed off; it is
+                # not proof of entitlement, so the caller reports it unverified.
+                if vendor and urlsplit(here).hostname == vendor:
+                    arrived = arrived or time.monotonic()
+                    if time.monotonic() - arrived >= HANDOFF_SETTLE:
+                        return 'handoff'
+                else:
+                    arrived = None
                 if form and page.locator(recipe['user']).first.is_visible():
                     return 'form'
                 for selector in recipe.get('dismiss', []) if form else []:
@@ -193,8 +210,8 @@ def cmd_login(args):
         page.goto(recipe['entry'].replace('{url}', target), wait_until='domcontentloaded', timeout=45000)
         state = reached(page, 30, form=True)
         if state is None:
-            raise RuntimeError('Neither the login form nor the signed-in site appeared; '
-                               'finish in the open window')
+            raise RuntimeError(f'Neither the login form nor the signed-in site appeared; stopped at '
+                               f'{bare(page)} ({page.title()!r}). Finish in the open window')
         if state == 'form':
             user, password = read_credentials(recipe)
             if recipe.get('ready'):
@@ -207,17 +224,76 @@ def cmd_login(args):
                 raise RuntimeError('Could not fill the login form; sign in by hand in the open window') from None
             # One submit per invocation. A retry loop here could lock the account.
             page.locator(recipe['submit']).first.click()
-            if reached(page, float(recipe.get('wait', 60))) is None:
+            after = reached(page, float(recipe.get('wait', 60)))
+            if after == 'handoff':
+                state = after
+            elif after is None:
                 raise RuntimeError(f'Stalled at {bare(page)} ({page.title()!r}) after one submit, which '
                                    'was not retried. Read the message on that page before blaming the '
                                    'credential: a rejected token or verification code usually means the '
                                    "form's own script had not finished and the recipe needs a `ready` "
                                    'expression. Otherwise check the credential file, or finish in the open window')
         final, title = bare(page), page.title()
+        if state == 'handoff':
+            # Left open: the vendor page is where entitlement is confirmed.
+            return result('success', input_url=target, final_url=final, method='login', site=args.site,
+                          title=title, login_verified=False, handed_off=True,
+                          already_authenticated=False,
+                          note='Gateway handed the session to the vendor host. Confirm the '
+                               "institution's name or access on that page with `text`; do not re-run login")
         if state == 'done':
             page.close()  # nothing new to show; routine session checks must not pile up tabs
         return result('success', input_url=target, final_url=final, method='login', site=args.site,
                       title=title, login_verified=True, already_authenticated=state == 'done')
+    return with_context(args, go)
+
+
+def cmd_text(args):
+    from playwright.sync_api import Error as BrowserError
+    def go(ctx):
+        opened = args.url.startswith(('http://', 'https://'))
+        if opened:
+            page = ctx.new_page()
+            page.set_viewport_size({'width': args.width or DEFAULT_WIDTH, 'height': 900})
+            page.goto(args.url, wait_until='domcontentloaded', timeout=45000)
+        else:
+            pages = [page for page in ctx.pages if args.url in page.url]
+            if not pages:
+                raise ValueError('No matching tab; inspect status and select the intended page')
+            page = pages[-1]
+            if args.width:
+                page.set_viewport_size({'width': args.width, 'height': 900})
+        try:
+            # Catalogue pages render results with script after DOMContentLoaded.
+            page.wait_for_timeout(args.settle * 1000)
+            if args.fill:
+                selector, value = args.fill
+                box = page.locator(selector).first
+                box.fill(value, force=True)
+                box.press('Enter')
+                try:
+                    page.wait_for_load_state('domcontentloaded', timeout=30000)
+                except BrowserError:
+                    pass
+                page.wait_for_timeout(args.settle * 1000)
+            text = page.evaluate('document.body ? document.body.innerText : ""')
+            here = page.evaluate('location.href')
+            if here.startswith('chrome-error:'):
+                raise RuntimeError('The page failed to load (browser error page); try again')
+            pattern = re.compile(args.links) if args.links else None
+            # Only links a reader can see: catalogues hide menus full of unrelated titles, and
+            # in-page anchors (language switches, skip links) share the page URL.
+            links = [] if pattern is None else list({link['href']: link for link in page.eval_on_selector_all(
+                'a[href]', 'els => els.filter(a => a.getClientRects().length).map(a => '
+                '({href: a.href, text: (a.textContent||"").trim().slice(0,120)}))')
+                if link['href'].split('#')[0] != here.split('#')[0]
+                and pattern.search(link['href'] + ' ' + link['text'])}.values())
+            return result('success', input_url=args.url, final_url=here,
+                          method='text', title=page.title(), text=text[:args.max],
+                          truncated=len(text) > args.max, links=links)
+        finally:
+            if opened and not args.keep:
+                page.close()  # reading must not pile up tabs in the shared session
     return with_context(args, go)
 
 
@@ -319,6 +395,16 @@ def main(argv=None):
     command = sub.add_parser('pdflink')
     command.add_argument('substr', nargs='?')
     command.set_defaults(fn=cmd_pdflink)
+    command = sub.add_parser('text', help='Read a page (URL opens a new tab, else a tab-URL substring)')
+    command.add_argument('url', help='URL to open, or a substring of an open tab\'s URL')
+    command.add_argument('--fill', nargs=2, metavar=('SELECTOR', 'TEXT'),
+                         help='Type TEXT into SELECTOR and press Enter, e.g. a catalogue search box')
+    command.add_argument('--links', metavar='REGEX', help='Also list links whose URL or text matches')
+    command.add_argument('--max', type=int, default=6000, help='Characters of page text to return')
+    command.add_argument('--settle', type=float, default=4, help='Seconds to let scripts render')
+    command.add_argument('--width', type=int, help=f'Viewport width; new tabs default to {DEFAULT_WIDTH}')
+    command.add_argument('--keep', action='store_true', help='Leave a newly opened tab open')
+    command.set_defaults(fn=cmd_text)
     command = sub.add_parser('save')
     command.add_argument('url')
     command.add_argument('out')
@@ -351,6 +437,10 @@ def main(argv=None):
             print(f'{item["url"]}  |  {item["title"]}')
         if value.get('final_url'):
             print(value['final_url'])
+        if value.get('note'):
+            print(value['note'])
+        if value.get('text'):
+            print(f'{value["title"]}\n\n{value["text"]}' + ('\n[truncated]' if value['truncated'] else ''))
     return {'success': 0, 'failed': 1, 'partial': 3}[value['status']]
 
 

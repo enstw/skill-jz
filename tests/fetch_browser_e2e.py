@@ -69,6 +69,20 @@ class Publisher(BaseHTTPRequestHandler):
                     b'<script>setTimeout(() => { document.getElementById("code").value = "42"; }, 400)</script>')
         elif self.path == '/account':
             body = b'<title>Signed in</title>' if signed_in else b'<title>Sign in</title>'
+        elif self.path.startswith('/handoff'):
+            # A gateway that signs the vendor in by its own SSO and hands over its unproxied host.
+            self.send_response(302)
+            self.send_header('Location', f'http://localhost:{self.server.server_port}/vendor')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
+        elif self.path == '/vendor':
+            body = (b'<title>Vendor</title><p>Hello! Fixture University</p><form action="/vendor/search">'
+                    b'<input id="q" name="q"></form><a href="/vendor/item/1">Item one</a>')
+        elif self.path.startswith('/vendor/search'):
+            query = parse_qs(self.path.partition('?')[2]).get('q', [''])[0]
+            body = (f'<title>Results</title><p>1 result for {query}</p>'
+                    '<a href="/vendor/item/7">Found book</a><a href="/about">About</a>').encode()
         elif self.path == '/login':
             cookie = 'library=fixture; Max-Age=3600; HttpOnly; Path=/'
             body = b'<title>Library session ready</title><a href="/pdf/1">PDF chapter 1</a><a href="/pdf/2">PDF chapter 2</a>'
@@ -191,6 +205,21 @@ def main():
             check('login_success_hides_secret', 'fixture-pass' not in command.raw, 'secret echoed')
             value = command('login', 'good', '--sites', sites)
             check('login_reuses_live_session', value['already_authenticated'] and Publisher.submits == 2, value)
+
+            vendor = f'http://localhost:{server.server_port}/vendor'
+            (sites / 'handoff.json').write_text(json.dumps({
+                **recipe, 'entry': origin + '/handoff?url={url}', 'default_url': vendor}))
+            value = command('login', 'handoff', '--sites', sites)
+            check('login_reports_vendor_handoff_unverified', value['handed_off'] and not value['login_verified']
+                  and value['final_url'] == vendor and Publisher.submits == 2, value)
+            value = command('text', ':' + str(server.server_port) + '/vendor', '--settle', '0.3')
+            check('text_reads_open_tab', 'Hello! Fixture University' in value['text'], value)
+            value = command('text', vendor, '--fill', '#q', 'strategy', '--links', 'item', '--settle', '0.5')
+            check('text_fills_search_and_filters_links', '1 result for strategy' in value['text']
+                  and [i['href'] for i in value['links']] == [vendor + '/item/7'], value)
+            value = command('status')
+            check('text_closes_tab_it_opened', not any('/vendor/search' in t['url'] for t in value['tabs']), value)
+            command('text', 'no-such-tab', expected=1)
 
             command('stop', '--profile', profile)
             launched = False
